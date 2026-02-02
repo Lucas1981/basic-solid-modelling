@@ -1,33 +1,44 @@
 import { Vec3 } from "../math/vec3";
-import { MeshData, Polygon } from "../io/meshLoader";
+import { MeshData, Polygon, UV } from "../io/meshLoader";
 
 /**
  * Mesh holds immutable geometry: local-space vertices (3D positions),
- * per-vertex normals, polygons, and bounding radius.
+ * per-vertex normals, UVs for texturing, polygons, and bounding radius.
  */
 export class Mesh {
   readonly vertices: Vec3[];
   readonly vertexNormals: Vec3[];
+  readonly uvs: UV[];
   readonly polygons: Polygon[];
   readonly boundingRadius: number;
 
-  constructor(vertices: Vec3[], polygons: Polygon[] = [], vertexNormals?: Vec3[]) {
+  constructor(
+    vertices: Vec3[],
+    polygons: Polygon[] = [],
+    vertexNormals?: Vec3[],
+    uvs: UV[] = [],
+  ) {
     this.vertices = vertices;
     this.polygons = polygons;
     this.vertexNormals =
       vertexNormals ?? Mesh.computeVertexNormals(vertices, polygons);
+    this.uvs = uvs;
     this.boundingRadius = Mesh.computeBoundingRadius(vertices);
   }
 
   /**
    * Create a Mesh from loaded mesh data (e.g. from JSON).
-   * If normals are not in data, they are computed as average of adjacent face normals.
    */
   static fromData(data: MeshData): Mesh {
     const vertexNormals = data.normals
       ? Mesh.expandNormalsToPerVertex(data)
       : Mesh.computeVertexNormals(data.vertices, data.polygons);
-    return new Mesh(data.vertices, data.polygons, vertexNormals);
+    return new Mesh(
+      data.vertices,
+      data.polygons,
+      vertexNormals,
+      data.uvs ?? [],
+    );
   }
 
   /**

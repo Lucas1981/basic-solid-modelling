@@ -14,11 +14,12 @@ import {
   type Material,
 } from "./Lighting";
 
-/** Geometry that has vertices, polygons, and optional per-vertex normals. */
+/** Geometry that has vertices, polygons, optional normals, and optional UVs. */
 export interface MeshLike {
   vertices: Vec3[];
   polygons: Polygon[];
   vertexNormals?: Vec3[];
+  uvs?: Array<{ u: number; v: number }>;
 }
 
 /** A batch of line segments drawn in a single color (e.g. one polygon's wireframe). */
@@ -33,7 +34,7 @@ export interface DrawablePolygonBatch extends ColoredSegmentBatch {
   depth: number;
 }
 
-/** Screen-space vertex with per-vertex color for Gouraud shading. invW = 1/w for perspective-correct interpolation. */
+/** Screen-space vertex with per-vertex color for Gouraud shading; optional u,v for texture. */
 export interface GouraudVertex {
   x: number;
   y: number;
@@ -42,14 +43,17 @@ export interface GouraudVertex {
   b: number;
   /** 1/w from clip space; when present, rasterizer uses perspective-correct interpolation. */
   invW?: number;
+  /** UV for texture sampling (when batch has texture). */
+  u?: number;
+  v?: number;
 }
 
-/** A filled polygon batch: Gouraud vertices in order and depth for Painter's sort. */
+/** A filled polygon batch: Gouraud vertices; optional texture for texture × lighting. */
 export interface FilledPolygonBatch {
-  /** Screen-space vertices with per-vertex color (and optional invW). */
   vertices: GouraudVertex[];
-  /** Camera-space z (negative in front of camera); used for depth sort (farthest first). */
   depth: number;
+  /** When set, rasterizer samples texture and multiplies by vertex (lighting) color. */
+  texture?: ImageData;
 }
 
 /** Result of projectSceneToPolygonWireframe: batches to draw, and optional debug normal segments. */
@@ -132,8 +136,7 @@ function parseColorToRgb(color: string): [number, number, number] {
 }
 
 /**
- * Build Gouraud vertices for a single polygon: per-vertex color from computeLighting.
- * cameraSpaceNormals: per-vertex normals (length = mesh.vertices). If empty, faceNormal is used for all vertices (flat).
+ * Build Gouraud vertices for a single polygon: per-vertex color from computeLighting; optional u,v from mesh uvs.
  */
 function collectPolygonGouraudVertices(
   projectedPoints: (ProjectedPoint | null)[],
@@ -144,12 +147,16 @@ function collectPolygonGouraudVertices(
   material: Material,
   lights: Light[],
   ambientColor: { r: number; g: number; b: number },
+  uvs: Array<{ u: number; v: number }>,
+  uvIndices: number[] | undefined,
 ): GouraudVertex[] | null {
   const indices = polygon.vertexIndices;
   if (indices.length < 2) return null;
   const vertices: GouraudVertex[] = [];
   const useFaceNormal = cameraSpaceNormals.length === 0 && faceNormal !== null;
-  for (const i of indices) {
+  const hasUVs = uvs.length > 0 && uvIndices && uvIndices.length === indices.length;
+  for (let k = 0; k < indices.length; k++) {
+    const i = indices[k];
     const p = projectedPoints[i];
     if (!p) return null;
     const pos = cameraSpaceVertices[i];
@@ -165,14 +172,19 @@ function collectPolygonGouraudVertices(
       lights,
       ambientColor,
     );
-    vertices.push({
+    const vert: GouraudVertex = {
       x: p.x,
       y: p.y,
       r: Math.round(Math.max(0, Math.min(255, color.r * 255))),
       g: Math.round(Math.max(0, Math.min(255, color.g * 255))),
       b: Math.round(Math.max(0, Math.min(255, color.b * 255))),
       invW: 1 / p.w,
-    });
+    };
+    if (hasUVs && uvIndices[k] < uvs.length) {
+      vert.u = uvs[uvIndices[k]].u;
+      vert.v = uvs[uvIndices[k]].v;
+    }
+    vertices.push(vert);
   }
   return vertices;
 }
@@ -319,12 +331,11 @@ export function collectPolygonScreenVertices(
 }
 
 export interface ProjectSceneOptions {
-  /** When true, also return debug normal segments (small pink lines per polygon). */
   debugShowDirection?: boolean;
-  /** When true, sort batches by depth (farthest first) for Painter's algorithm. */
   applyPaintersAlgorithm?: boolean;
-  /** When true, skip polygons facing away from the camera (back-face culling). */
   applyBackFaceCulling?: boolean;
+  /** Map textureUrl (as in JSON) -> ImageData; when set, textured polygons get texture. */
+  textureMap?: Map<string, ImageData>;
 }
 
 /**
@@ -468,6 +479,7 @@ export function projectSceneToFilledPolygons(
         specular: { r: 0.5, g: 0.5, b: 0.5 },
         shininess: 32,
       };
+      const meshUvs = mesh.uvs ?? [];
       const vertices = collectPolygonGouraudVertices(
         projectedPoints,
         polygon,
@@ -477,10 +489,16 @@ export function projectSceneToFilledPolygons(
         material,
         lightsCamera,
         ambientColor,
+        meshUvs,
+        polygon.uvIndices,
       );
       if (vertices !== null && vertices.length >= 2) {
         const depth = polygonDepth(polygon.vertexIndices, cameraSpaceVertices);
-        batches.push({ vertices, depth });
+        const texture =
+          polygon.textureUrl && options?.textureMap
+            ? options.textureMap.get(polygon.textureUrl)
+            : undefined;
+        batches.push({ vertices, depth, texture });
       }
 
       if (options?.debugShowDirection && faceNormal) {

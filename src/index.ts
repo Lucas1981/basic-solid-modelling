@@ -1,5 +1,6 @@
-// Entry point for the 3D solid modeling engine (Phase 5–7: lighting)
+// Entry point for the 3D solid modeling engine (Phase 8: texture mapping)
 import { loadMesh } from "./io/meshLoader";
+import { loadTexturesForMesh } from "./io/textureLoader";
 import { Vec3 } from "./math/vec3";
 import { projectSceneToFilledPolygons } from "./core/renderHelpers";
 import type { DirectionalLight, PointLight } from "./core/Lighting";
@@ -7,7 +8,7 @@ import { Viewport } from "./math/projection";
 import { degToRad } from "./math/utils";
 import { Canvas } from "./core/Canvas";
 import { Framebuffer } from "./core/Framebuffer";
-import { rasterizeTriangleGouraud } from "./core/rasterizer";
+import { rasterizeTriangleGouraud, rasterizeTriangleGouraudTextured } from "./core/rasterizer";
 import { Mesh } from "./core/Mesh";
 import { Object3D } from "./core/Object3D";
 import { Scene } from "./core/Scene";
@@ -53,8 +54,10 @@ const APPLY_BACK_FACE_CULLING = false;
 // Load the cube mesh and start rendering
 async function main() {
   try {
-    const meshData = await loadMesh("./assets/cube.json");
+    const meshUrl = "./assets/cube.json";
+    const meshData = await loadMesh(meshUrl);
     const mesh = Mesh.fromData(meshData);
+    const textureMap = await loadTexturesForMesh(meshData, meshUrl);
 
     const scene = new Scene(camera);
     scene.add(new Object3D(mesh, new Vec3(-2, 0, 0)));
@@ -111,16 +114,27 @@ async function main() {
           debugShowDirection: DEBUG_SHOW_DIRECTION,
           applyPaintersAlgorithm: APPLY_PAINTERS_ALGORITHM,
           applyBackFaceCulling: APPLY_BACK_FACE_CULLING,
+          textureMap,
         },
       );
       for (const batch of batches) {
         if (batch.vertices.length >= 3) {
-          rasterizeTriangleGouraud(
-            framebuffer,
-            batch.vertices[0],
-            batch.vertices[1],
-            batch.vertices[2],
-          );
+          if (batch.texture) {
+            rasterizeTriangleGouraudTextured(
+              framebuffer,
+              batch.vertices[0],
+              batch.vertices[1],
+              batch.vertices[2],
+              batch.texture,
+            );
+          } else {
+            rasterizeTriangleGouraud(
+              framebuffer,
+              batch.vertices[0],
+              batch.vertices[1],
+              batch.vertices[2],
+            );
+          }
         }
       }
 
