@@ -1,4 +1,5 @@
 import { Vec2 } from "../math/vec2";
+import { parseColorHex } from "../math/utils";
 import { Framebuffer } from "./Framebuffer";
 import type { GouraudVertex } from "./renderHelpers";
 
@@ -31,7 +32,7 @@ export function rasterizeTriangle(
   c: Vec2,
   color: string,
 ): void {
-  const [r, g, blue] = parseColor(color);
+  const [r, g, blue] = parseColorHex(color);
 
   const minX = Math.max(0, Math.floor(Math.min(a.x, b.x, c.x)));
   const maxX = Math.min(
@@ -60,7 +61,7 @@ export function rasterizeTriangle(
       const u = (pax * acy - pay * acx) / denom;
       const v = (abx * pay - aby * pax) / denom;
       if (u >= 0 && v >= 0 && u + v <= 1) {
-        framebuffer.putPixel(px_, py_, r, g, blue);
+        framebuffer.putPixelUnsafe(px, py, r, g, blue);
       }
     }
   }
@@ -124,9 +125,9 @@ export function rasterizeTriangleGouraud(
           g = w * a.g + u * b.g + v * c.g;
           blue = w * a.b + u * b.b + v * c.b;
         }
-        framebuffer.putPixel(
-          px_,
-          py_,
+        framebuffer.putPixelUnsafe(
+          px,
+          py,
           Math.round(Math.max(0, Math.min(255, r))),
           Math.round(Math.max(0, Math.min(255, g))),
           Math.round(Math.max(0, Math.min(255, blue))),
@@ -208,27 +209,8 @@ export function rasterizeTriangleGouraudTextured(
         const fr = Math.round(Math.max(0, Math.min(255, (tR * r) / 255)));
         const fg = Math.round(Math.max(0, Math.min(255, (tG * g) / 255)));
         const fb = Math.round(Math.max(0, Math.min(255, (tB * blue) / 255)));
-        framebuffer.putPixel(px_, py_, fr, fg, fb);
+        framebuffer.putPixelUnsafe(px, py, fr, fg, fb);
       }
     }
   }
-}
-
-function parseColor(color: string): [number, number, number] {
-  const hex = color.startsWith("#") ? color.slice(1) : color;
-  if (hex.length === 6) {
-    return [
-      parseInt(hex.slice(0, 2), 16),
-      parseInt(hex.slice(2, 4), 16),
-      parseInt(hex.slice(4, 6), 16),
-    ];
-  }
-  if (hex.length === 3) {
-    return [
-      parseInt(hex[0] + hex[0], 16),
-      parseInt(hex[1] + hex[1], 16),
-      parseInt(hex[2] + hex[2], 16),
-    ];
-  }
-  return [0, 0, 0];
 }
