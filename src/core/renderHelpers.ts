@@ -1,0 +1,366 @@
+import { Vec2 } from "../math/vec2";
+import { Vec3 } from "../math/vec3";
+import { Vec4 } from "../math/vec4";
+import { Mat4 } from "../math/mat4";
+import { projectPoint, Viewport } from "../math/projection";
+import { isSphereInFrustum } from "../math/frustum";
+import { Scene } from "./Scene";
+import type { Polygon } from "../io/meshLoader";
+
+/** Geometry that has vertices and polygons (Mesh or MeshData). */
+export interface MeshLike {
+  vertices: Vec3[];
+  polygons: Polygon[];
+}
+
+/** A batch of line segments drawn in a single color (e.g. one polygon's wireframe). */
+export interface ColoredSegmentBatch {
+  color: string;
+  segments: Array<[number, number, number, number]>;
+}
+
+/** A drawable polygon batch with depth for Painter's algorithm (sort back-to-front). */
+export interface DrawablePolygonBatch extends ColoredSegmentBatch {
+  /** Camera-space z (negative in front of camera); used for depth sort (farthest first). */
+  depth: number;
+}
+
+/** A filled polygon batch: screen-space vertices in order, color, and depth for Painter's sort. */
+export interface FilledPolygonBatch {
+  /** Screen-space 2D vertices in polygon order (for moveTo/lineTo/fill). */
+  vertices: Vec2[];
+  color: string;
+  /** Camera-space z (negative in front of camera); used for depth sort (farthest first). */
+  depth: number;
+}
+
+/** Result of projectSceneToPolygonWireframe: batches to draw, and optional debug normal segments. */
+export interface ProjectSceneResult {
+  batches: ColoredSegmentBatch[];
+  debugNormalSegments: Array<[number, number, number, number]>;
+}
+
+/** Result of projectSceneToFilledPolygons: filled polygon batches and optional debug normal segments. */
+export interface ProjectSceneFilledResult {
+  batches: FilledPolygonBatch[];
+  debugNormalSegments: Array<[number, number, number, number]>;
+}
+
+/** Length of debug normal line in camera-space units. */
+const DEBUG_NORMAL_LENGTH = 0.4;
+
+/**
+ * Project all mesh vertices to screen space using the MVP matrix.
+ * Returns an array where each element is either a Vec3 (screen coordinates)
+ * or null if the vertex is behind the camera or invalid.
+ */
+export function projectMeshVertices(
+  mesh: MeshLike,
+  mvp: Mat4,
+  viewport: Viewport,
+): (Vec3 | null)[] {
+  const projected: (Vec3 | null)[] = [];
+
+  for (const vertex of mesh.vertices) {
+    const p = projectPoint(vertex, mvp, viewport);
+    if (p && !p.behind) {
+      projected.push(new Vec3(p.x, p.y, 0));
+    } else {
+      projected.push(null);
+    }
+  }
+
+  return projected;
+}
+
+/**
+ * Transform mesh vertices to camera space (view * model).
+ * Returns array of Vec3 (x, y, z) in camera space; z is negative in front of camera.
+ */
+function transformVerticesToCameraSpace(
+  mesh: MeshLike,
+  viewModel: Mat4,
+): Vec3[] {
+  const out: Vec3[] = [];
+  for (const v of mesh.vertices) {
+    const c = viewModel.transformVec4(new Vec4(v.x, v.y, v.z, 1));
+    out.push(new Vec3(c.x, c.y, c.z));
+  }
+  return out;
+}
+
+/**
+ * Compute polygon depth for Painter's algorithm: average camera-space z of its vertices.
+ * Smaller z = farther from camera (draw first).
+ */
+function polygonDepth(
+  vertexIndices: number[],
+  cameraSpaceVertices: Vec3[],
+): number {
+  if (vertexIndices.length === 0) return 0;
+  let sum = 0;
+  for (const i of vertexIndices) {
+    sum += cameraSpaceVertices[i].z;
+  }
+  return sum / vertexIndices.length;
+}
+
+/**
+ * Compute polygon surface normal in camera space from first three vertices.
+ * Outward normal: (v1 - v0) × (v2 - v0), normalized. Returns null if degenerate.
+ */
+function polygonNormal(
+  vertexIndices: number[],
+  cameraSpaceVertices: Vec3[],
+): Vec3 | null {
+  if (vertexIndices.length < 3) return null;
+  const v0 = cameraSpaceVertices[vertexIndices[0]];
+  const v1 = cameraSpaceVertices[vertexIndices[1]];
+  const v2 = cameraSpaceVertices[vertexIndices[2]];
+  const e1 = v1.sub(v0);
+  const e2 = v2.sub(v0);
+  const n = e1.cross(e2);
+  const len = n.length();
+  if (len === 0) return null;
+  return n.normalize();
+}
+
+/**
+ * Compute polygon center in camera space (average of vertex positions).
+ */
+function polygonCenter(
+  vertexIndices: number[],
+  cameraSpaceVertices: Vec3[],
+): Vec3 {
+  if (vertexIndices.length === 0) return new Vec3(0, 0, 0);
+  let x = 0, y = 0, z = 0;
+  for (const i of vertexIndices) {
+    const v = cameraSpaceVertices[i];
+    x += v.x;
+    y += v.y;
+    z += v.z;
+  }
+  const n = vertexIndices.length;
+  return new Vec3(x / n, y / n, z / n);
+}
+
+/**
+ * Build wireframe segments for a single polygon from projected vertices.
+ * Draws lines between consecutive vertex indices, then last back to first.
+ * Returns the segments, or null if any polygon vertex is invalid or behind.
+ */
+export function collectPolygonSegments(
+  projectedVertices: (Vec3 | null)[],
+  polygon: Polygon,
+): Array<[number, number, number, number]> | null {
+  const indices = polygon.vertexIndices;
+  if (indices.length < 2) return [];
+
+  const segments: Array<[number, number, number, number]> = [];
+
+  for (let i = 0; i < indices.length; i++) {
+    const idxA = indices[i];
+    const idxB = indices[(i + 1) % indices.length];
+    const vA = projectedVertices[idxA];
+    const vB = projectedVertices[idxB];
+
+    if (!vA || !vB) return null;
+    segments.push([vA.x, vA.y, vB.x, vB.y]);
+  }
+
+  return segments;
+}
+
+/**
+ * Build screen-space 2D vertices for a single polygon from projected vertices.
+ * Returns vertices in polygon order, or null if any polygon vertex is invalid or behind.
+ */
+export function collectPolygonScreenVertices(
+  projectedVertices: (Vec3 | null)[],
+  polygon: Polygon,
+): Vec2[] | null {
+  const indices = polygon.vertexIndices;
+  if (indices.length < 2) return null;
+
+  const vertices: Vec2[] = [];
+  for (const i of indices) {
+    const v = projectedVertices[i];
+    if (!v) return null;
+    vertices.push(new Vec2(v.x, v.y));
+  }
+  return vertices;
+}
+
+export interface ProjectSceneOptions {
+  /** When true, also return debug normal segments (small pink lines per polygon). */
+  debugShowDirection?: boolean;
+  /** When true, sort batches by depth (farthest first) for Painter's algorithm. */
+  applyPaintersAlgorithm?: boolean;
+  /** When true, skip polygons facing away from the camera (back-face culling). */
+  applyBackFaceCulling?: boolean;
+}
+
+/**
+ * Project the whole scene to screen-space wireframe per polygon, with depth for Painter's algorithm.
+ * Each object (after frustum culling) is rendered by polygon: for each polygon,
+ * project its vertex indices; draw lines 1-2, 2-3, ..., n-1 (last back to first).
+ * Batches are sorted by depth (farthest first) so drawing order gives correct occlusion.
+ * Returns sorted batches and optional debug normal segments for drawing back-to-front.
+ */
+export function projectSceneToPolygonWireframe(
+  scene: Scene,
+  viewProj: Mat4,
+  viewport: Viewport,
+  options?: ProjectSceneOptions,
+): ProjectSceneResult {
+  const batches: DrawablePolygonBatch[] = [];
+  const debugNormalSegments: Array<[number, number, number, number]> = [];
+  const camera = scene.camera;
+  const view = camera.getViewMatrix();
+  const aspect = viewport.width / viewport.height;
+  const projection = camera.getProjectionMatrix(aspect);
+
+  for (const object of scene.objects) {
+    const mesh = object.mesh;
+    const worldCenter = object.position;
+    const worldRadius =
+      mesh.boundingRadius *
+      Math.max(object.scale.x, object.scale.y, object.scale.z);
+
+    if (
+      !isSphereInFrustum(
+        worldCenter,
+        worldRadius,
+        view,
+        camera.fovYRad,
+        aspect,
+        camera.near,
+        camera.far,
+      )
+    ) {
+      continue;
+    }
+
+    const model = object.getModelMatrix();
+    const viewModel = view.multiply(model);
+    const mvp = viewProj.multiply(model);
+    const cameraSpaceVertices = transformVerticesToCameraSpace(mesh, viewModel);
+    const projectedVertices = projectMeshVertices(mesh, mvp, viewport);
+
+    for (const polygon of mesh.polygons) {
+      const normal = polygonNormal(polygon.vertexIndices, cameraSpaceVertices);
+      if (options?.applyBackFaceCulling) {
+        // Back-face culling: in camera space camera looks down -Z, so front-facing = normal.z > 0
+        if (normal !== null && normal.z < 0) continue;
+      }
+
+      const segments = collectPolygonSegments(projectedVertices, polygon);
+      if (segments !== null && segments.length > 0) {
+        const depth = polygonDepth(polygon.vertexIndices, cameraSpaceVertices);
+        batches.push({ color: polygon.color, segments, depth });
+      }
+
+      if (options?.debugShowDirection && normal) {
+        const center = polygonCenter(polygon.vertexIndices, cameraSpaceVertices);
+        const end = center.add(normal.scale(DEBUG_NORMAL_LENGTH));
+        const pStart = projectPoint(center, projection, viewport);
+        const pEnd = projectPoint(end, projection, viewport);
+        if (pStart && !pStart.behind && pEnd && !pEnd.behind) {
+          debugNormalSegments.push([
+            pStart.x,
+            pStart.y,
+            pEnd.x,
+            pEnd.y,
+          ]);
+        }
+      }
+    }
+  }
+
+  if (options?.applyPaintersAlgorithm) {
+    batches.sort((a, b) => a.depth - b.depth);
+  }
+
+  return { batches, debugNormalSegments };
+}
+
+/**
+ * Project the whole scene to filled polygon batches (screen-space vertices per polygon).
+ * Reuses the same pipeline as wireframe: frustum culling, back-face culling, depth for Painter's sort.
+ * Returns batches suitable for Canvas.fillPolygon (vertices in order, color, depth).
+ */
+export function projectSceneToFilledPolygons(
+  scene: Scene,
+  viewProj: Mat4,
+  viewport: Viewport,
+  options?: ProjectSceneOptions,
+): ProjectSceneFilledResult {
+  const batches: FilledPolygonBatch[] = [];
+  const debugNormalSegments: Array<[number, number, number, number]> = [];
+  const camera = scene.camera;
+  const view = camera.getViewMatrix();
+  const aspect = viewport.width / viewport.height;
+  const projection = camera.getProjectionMatrix(aspect);
+
+  for (const object of scene.objects) {
+    const mesh = object.mesh;
+    const worldCenter = object.position;
+    const worldRadius =
+      mesh.boundingRadius *
+      Math.max(object.scale.x, object.scale.y, object.scale.z);
+
+    if (
+      !isSphereInFrustum(
+        worldCenter,
+        worldRadius,
+        view,
+        camera.fovYRad,
+        aspect,
+        camera.near,
+        camera.far,
+      )
+    ) {
+      continue;
+    }
+
+    const model = object.getModelMatrix();
+    const viewModel = view.multiply(model);
+    const mvp = viewProj.multiply(model);
+    const cameraSpaceVertices = transformVerticesToCameraSpace(mesh, viewModel);
+    const projectedVertices = projectMeshVertices(mesh, mvp, viewport);
+
+    for (const polygon of mesh.polygons) {
+      const normal = polygonNormal(polygon.vertexIndices, cameraSpaceVertices);
+      if (options?.applyBackFaceCulling) {
+        if (normal !== null && normal.z < 0) continue;
+      }
+
+      const vertices = collectPolygonScreenVertices(projectedVertices, polygon);
+      if (vertices !== null && vertices.length >= 2) {
+        const depth = polygonDepth(polygon.vertexIndices, cameraSpaceVertices);
+        batches.push({ vertices, color: polygon.color, depth });
+      }
+
+      if (options?.debugShowDirection && normal) {
+        const center = polygonCenter(polygon.vertexIndices, cameraSpaceVertices);
+        const end = center.add(normal.scale(DEBUG_NORMAL_LENGTH));
+        const pStart = projectPoint(center, projection, viewport);
+        const pEnd = projectPoint(end, projection, viewport);
+        if (pStart && !pStart.behind && pEnd && !pEnd.behind) {
+          debugNormalSegments.push([
+            pStart.x,
+            pStart.y,
+            pEnd.x,
+            pEnd.y,
+          ]);
+        }
+      }
+    }
+  }
+
+  if (options?.applyPaintersAlgorithm) {
+    batches.sort((a, b) => a.depth - b.depth);
+  }
+
+  return { batches, debugNormalSegments };
+}
