@@ -1,83 +1,140 @@
-# Advanced Wireframe Engine
+# Solid Modeling 3D Engine
 
-A TypeScript 3D wireframe engine that renders meshes as colored polygon outlines. It includes a full math and projection pipeline, object-level frustum culling, per-polygon rendering with optional back-face culling and Painter's algorithm (depth sort).
+A TypeScript 3D engine that renders meshes as **filled, lit, textured triangles**. It extends a wireframe foundation with a full math and projection pipeline, object-level frustum culling, **back-face culling**, **Painter's algorithm** (depth sort), **Gouraud shading**, **Phong-style lighting** (ambient, diffuse, specular), and **texture mapping** with perspective-correct UV interpolation. No z-buffer: visibility is handled by back-face culling and drawing back-to-front.
 
 ## Features
 
-- **Math engine:** Vec2, Vec3, Vec4 (dot, cross, normalize, length), Mat4 (multiply, transformVec4, translation, scaling, rotationX/Y/Z, perspective), Quat (identity, fromEuler, conjugate, toMat4).
-- **Projection:** Viewport, NDC → screen mapping (Y flip), `projectPoint(point, mvp, viewport)` with screen (x, y) and a `behind` flag. Pipeline: local → world → camera → clip → NDC → screen.
-- **Scene and camera:** Camera with position (Vec3), orientation (Quat), fov/near/far; `getViewMatrix()`, `getProjectionMatrix(aspect)`. Scene holds a list of objects and the active camera.
-- **Object transform:** Object3D with mesh, position, rotation (Euler), scale; `getModelMatrix()` (T×R×S).
-- **Mesh:** Vertices (Vec3[] in local space), polygons (`{ color, vertexIndices }[]`). Edges are implied by polygon vertex order (draw 1–2, 2–3, …, n–1). Bounding radius is precomputed for culling.
-- **IO:** Mesh JSON (vertices + polygons) loaded via `loadMesh(url)`; no separate edge list.
-- **Frustum culling:** Object-level; world-space bounding sphere tested against the view frustum; off-screen objects are skipped.
-- **Rendering:** Per-polygon wireframe: project vertices, then for each polygon draw lines between consecutive vertex indices (and last to first) in polygon color.
-- **Back-face culling (optional):** Polygon normal in camera space from first three vertices; polygons with normal.z < 0 are skipped. Toggled by `APPLY_BACK_FACE_CULLING`.
-- **Painter's algorithm (optional):** Depth per polygon (average camera-space z); sort by depth ascending (farthest first); draw in that order. Toggled by `APPLY_PAINTERS_ALGORITHM`.
-- **Debug:** Optional pink lines for polygon surface normals; toggled by `DEBUG_SHOW_DIRECTION`.
+### Core pipeline
+- **Math:** Vec2, Vec3, Vec4 (dot, cross, normalize), Mat4 (multiply, transformVec4, translation, scaling, rotation, perspective, normalMatrix), Quat (fromEuler, conjugate, toMat4).
+- **Projection:** Viewport, NDC → screen (Y flip), `projectPoint(point, mvp, viewport)` with screen (x, y), clip-space `w`, and `behind` flag.
+- **Scene:** Camera (position, orientation, fov/near/far), Object3D (mesh, position, rotation, scale), Scene (objects + camera + lights).
+- **Mesh:** Vertices (Vec3[]), polygons (color, vertexIndices, optional textureUrl, uvIndices), optional vertexNormals and uvs; bounding radius for culling.
 
-The engine is wireframe-only; filled polygons are not implemented.
+### Visibility and order
+- **Frustum culling:** Object-level; world bounding sphere vs view frustum.
+- **Back-face culling:** Polygon normal in camera space (e1×e2 from first three vertices); cull when dot(v0, n) ≥ 0. Mesh should be wound CCW from outside so normals point outward.
+- **Painter's algorithm:** Depth = farthest vertex (min camera-space z); sort ascending (farthest first); stable tie-breaker by batch index.
+
+### Rendering
+- **Framebuffer:** Color buffer (ImageData), `clear(color)`, `putPixel(x, y, r, g, b)`, no depth buffer.
+- **Rasterizer:** Barycentric triangle rasterization; Gouraud (interpolate r,g,b with optional 1/w); textured (interpolate u/w, v/w, 1/w; sample texture; final color = texture × lighting).
+- **Lighting:** Phong-style in `Lighting.ts`: ambient, diffuse (N·L), specular (R·V)^shininess, emissive; directional, point, and spot lights; lights and normals in camera space for shading.
+
+### IO and assets
+- **Mesh:** JSON via `loadMesh(url)` — vertices, polygons (color, vertexIndices, textureUrl?, uvIndices?), optional uvs, normals.
+- **Textures:** `loadTexturesForMesh(meshData, meshBaseUrl)` loads all textureUrl values from polygons into a Map; nearest-neighbor sampling with wrap.
+
+### Debug
+- **DEBUG_SHOW_DIRECTION:** When true, draw polygon surface normals as small pink lines.
+- **SHOW_FPS:** When true, show frames per second in the bottom-left corner (green monospace).
+- **APPLY_PAINTERS_ALGORITHM** / **APPLY_BACK_FACE_CULLING:** Toggle depth sort and back-face culling in `index.ts`.
 
 ## Project structure
 
 ```
 src/
-  index.ts          # Entry point: load mesh, create scene, render loop
-  index.html        # Canvas and script
+  index.ts            # Entry: load mesh + textures, scene, render loop (Gouraud textured)
+  index.html          # Canvas and script
   core/
-    Camera.ts       # Perspective camera (view/projection matrices)
-    Canvas.ts       # HTML5 Canvas wrapper (clear, drawLine, drawLines)
-    Scene.ts        # List of Object3D + active camera
-    Object3D.ts     # Mesh instance with position, rotation, scale
-    Mesh.ts         # Vertices, polygons, bounding radius
-    renderHelpers.ts # projectSceneToPolygonWireframe, frustum/backface/depth
-    Input.ts        # Fly-camera input
+    Camera.ts        # Perspective camera (view / projection matrices)
+    Canvas.ts        # HTML5 Canvas wrapper (clear, drawLine, drawLines, blit, fillPolygon, drawText)
+    Framebuffer.ts   # Color buffer (ImageData, clear, putPixel)
+    rasterizer.ts   # rasterizeTriangle, rasterizeTriangleGouraud, rasterizeTriangleGouraudTextured
+    renderHelpers.ts # projectSceneToFilledPolygons, frustum/backface/depth, Gouraud vertex collection
+    Lighting.ts      # computeLighting, light types, transformLightsToCameraSpace
+    Scene.ts         # Object3D[] + Camera + lights + ambientColor
+    Object3D.ts      # Mesh instance (position, rotation, scale)
+    Mesh.ts          # Vertices, polygons, optional vertexNormals, uvs, bounding radius
+    Input.ts         # Fly-camera input
   math/
     vec2.ts, vec3.ts, vec4.ts
     mat4.ts, quat.ts
-    projection.ts   # projectPoint, NDC→screen
-    frustum.ts      # isSphereInFrustum
+    projection.ts    # projectPoint, NDC→screen
+    frustum.ts       # isSphereInFrustum
     utils.ts
   io/
-    meshLoader.ts   # loadMesh, MeshData, Polygon
+    meshLoader.ts    # loadMesh, MeshData, Polygon (color, vertexIndices, textureUrl?, uvIndices?)
+    textureLoader.ts # loadTexture, loadTexturesForMesh
   assets/
-    cube.json       # Example mesh (vertices + polygons)
+    cube.json        # Example mesh (vertices, uvs, polygons with textureUrl + uvIndices)
+    cat.jpg         # Example texture
 ```
 
 ## How to use
 
-1. **Build and run:** `npm install`, `npm run build`, then open `index.html` (or use a dev server). The demo loads `./assets/cube.json`, creates a scene with two rotating cubes, and renders with a fly camera.
-2. **Load a mesh:** `const meshData = await loadMesh("./assets/cube.json"); const mesh = Mesh.fromData(meshData);`
-3. **Build a scene:** `const scene = new Scene(camera); scene.add(new Object3D(mesh, position, rotation?, scale?));`
-4. **Render:** Each frame: get view and projection from the camera, call `projectSceneToPolygonWireframe(scene, viewProj, viewport, options)`, then draw the returned batches (and optional debug normal segments).
-5. **Flags (in `index.ts`):** Set `APPLY_PAINTERS_ALGORITHM` and/or `APPLY_BACK_FACE_CULLING` to `true` to enable depth sort and back-face culling; set `DEBUG_SHOW_DIRECTION` to `true` to draw polygon normals in pink.
+### Build and run
+1. `npm install`
+2. `npm run build`
+3. Open `dist/index.html` (or serve the project and open the page). The demo loads `./assets/cube.json`, loads textures for all polygon `textureUrl` values, creates a scene with two rotating cubes, directional + point light, and renders with a fly camera.
+
+### Load mesh and textures
+```ts
+const meshUrl = "./assets/cube.json";
+const meshData = await loadMesh(meshUrl);
+const mesh = Mesh.fromData(meshData);
+const textureMap = await loadTexturesForMesh(meshData, meshUrl);
+```
+
+### Build a scene
+```ts
+const scene = new Scene(camera);
+scene.add(new Object3D(mesh, new Vec3(-2, 0, 0)));
+scene.lights.push({ type: "directional", direction, color, intensity } as DirectionalLight);
+scene.lights.push({ type: "point", position, color, intensity, attenuation } as PointLight);
+scene.ambientColor = { r: 0.12, g: 0.12, b: 0.18 };
+```
+
+### Render loop (filled polygons)
+Each frame:
+1. Clear framebuffer, update camera from input, update object rotations.
+2. `projectSceneToFilledPolygons(scene, viewProj, viewport, { applyBackFaceCulling, applyPaintersAlgorithm, textureMap })` → batches of Gouraud vertices (x, y, r, g, b, invW, u?, v?) and optional texture.
+3. For each batch: if `batch.texture` use `rasterizeTriangleGouraudTextured(framebuffer, a, b, c, texture)`, else `rasterizeTriangleGouraud(framebuffer, a, b, c)`.
+4. `canvas.blit(framebuffer)`.
+5. If debug: draw normals with `canvas.drawLines(debugNormalSegments, "#ff69b4")`; if SHOW_FPS, `canvas.drawText(\`${fps} FPS\`, 10, height - 10)`.
+
+### Flags (in `index.ts`)
+- **SHOW_FPS** (default `true`): Show FPS in bottom-left.
+- **DEBUG_SHOW_DIRECTION** (default `false`): Draw polygon normals in pink.
+- **APPLY_PAINTERS_ALGORITHM** (default `true`): Sort polygons by depth (farthest first).
+- **APPLY_BACK_FACE_CULLING** (default `true`): Skip polygons facing away from the camera.
 
 ## Data structures
 
-**JSON mesh format:**
+### JSON mesh format
+- **vertices:** `[{ x, y, z }, ...]` in local space.
+- **uvs:** Optional `[{ u, v }, ...]`; each polygon references by uvIndices.
+- **polygons:** `[{ color, vertexIndices, textureUrl?, uvIndices? }, ...]`. Triangles (3 indices). If `textureUrl` is set, `uvIndices` must match vertex count; texture is loaded and applied with lighting (texture × lighting).
 
-- `vertices`: array of `{ x, y, z }` (3D positions in local space). Optional `z` defaults to 0.
-- `polygons`: array of `{ color: string, vertexIndices: number[] }`. Each polygon lists vertex indices; edges are implied (consecutive indices, then last back to first). Typically triangles (3 indices) or quads (4).
+Mesh winding: both triangles of each quad should be wound **CCW when viewed from outside** so that the computed normal (e1×e2) points outward and back-face culling is correct.
 
-**In-memory:**
-
-- **Mesh:** `vertices: Vec3[]`, `polygons: Polygon[]`, `boundingRadius: number`.
-- **Polygon:** `color: string`, `vertexIndices: number[]`.
-- **Object3D:** `mesh: Mesh`, `position: Vec3`, `rotation: Euler`, `scale: Vec3`; `getModelMatrix()`.
-- **Scene:** `objects: Object3D[]`, `camera: Camera`.
-- **Camera:** `position`, `orientation` (Quat), `fovYRad`, `near`, `far`; `getViewMatrix()`, `getProjectionMatrix(aspect)`.
-
-Vertex winding in the JSON defines the polygon normal (right-hand rule from first three vertices); outward normals are used for correct back-face culling.
+### In-memory
+- **Mesh:** `vertices`, `polygons`, `vertexNormals?`, `uvs?`, `boundingRadius`.
+- **Polygon:** `color`, `vertexIndices`, `textureUrl?`, `uvIndices?`.
+- **Scene:** `objects`, `camera`, `lights`, `ambientColor`.
+- **Filled batch:** `vertices` (GouraudVertex[]), `depth`, `texture?`, `batchIndex`.
 
 ## Rendering pipeline
 
-1. **Load:** JSON → `MeshData` (vertices, polygons) → `Mesh`.
-2. **Scene:** `Mesh` + transforms → `Object3D` instances in a `Scene` with a `Camera`.
+1. **Load:** JSON → MeshData → Mesh; load textures for all polygon textureUrl.
+2. **Scene:** Mesh + Object3D transforms; Scene with Camera and lights.
 3. **Per frame:**
-   - For each object: test world bounding sphere with `isSphereInFrustum`; skip if outside.
-   - For each visible object: transform vertices to camera space (view×model); project vertices to screen (viewProj×model, viewport).
-   - For each polygon: if back-face culling is on, compute normal in camera space and skip when normal.z < 0. Collect wireframe segments (consecutive vertex indices, last→first) and polygon depth (average camera-space z).
-   - If Painter's algorithm is on: sort batches by depth ascending (farthest first).
-   - Draw batches in order: for each batch, `drawLines(segments, color, lineWidth)`. If debug normals are on, draw the returned debug segments in pink.
+   - Frustum cull objects (world bounding sphere vs view frustum).
+   - For each visible object: transform vertices and normals to camera space; project vertices (full ProjectedPoint with w).
+   - For each polygon: compute face normal (e1×e2); if back-face culling, skip when dot(v0, n) ≥ 0; build Gouraud vertices (per-vertex lighting, optional UVs); depth = min vertex z; optional texture from textureMap.
+   - If Painter's: sort batches by depth ascending, tie-break by batchIndex.
+   - For each batch: rasterize triangle (Gouraud or Gouraud textured) into framebuffer.
+   - Blit framebuffer to canvas; draw debug normals and FPS if enabled.
 
-Pipeline: **JSON → Mesh → Object3D → Scene → frustum cull → project vertices → (optional) back-face cull → per-polygon segments + depth → (optional) depth sort → draw wireframe by polygon color.**
+Pipeline: **JSON + textures → Mesh → Object3D → Scene → frustum cull → camera-space transform → back-face cull → per-vertex lighting + UVs → depth sort → rasterize (Gouraud/textured) → blit → debug overlay.**
+
+## Plan completion
+
+This implementation follows [docs/plan.md](docs/plan.md):
+
+- **Phases 1–3:** Flat fill path, color buffer (Framebuffer), triangle rasterization.
+- **Phase 4:** Gouraud shading (vertex color interpolation, perspective-correct when invW present).
+- **Phases 5–7:** Per-vertex normals (from mesh or face), Phong-style lighting (Lighting.ts), per-vertex lighting with Gouraud.
+- **Phase 8:** Texture mapping (UVs, loadTexture/loadTexturesForMesh, perspective-correct u/v, texture × lighting).
+- **Phase 9:** Demo with textured cube, debug options (normals, FPS), and this README.
+
+No z-buffer; visibility is handled by back-face culling and Painter's algorithm only.
