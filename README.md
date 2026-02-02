@@ -27,6 +27,7 @@ A TypeScript 3D engine that renders meshes as **filled, lit, textured triangles*
 ### Debug
 - **DEBUG_SHOW_DIRECTION:** When true, draw polygon surface normals as small pink lines.
 - **SHOW_FPS:** When true, show frames per second in the bottom-left corner (green monospace).
+- **SHOW_LIGHT_SOURCES:** When true, draw point and spot light positions as orange filled circles with red outline; radius scales with camera-space z (clamped 2–16 px); only drawn if the light is in the view frustum.
 - **APPLY_PAINTERS_ALGORITHM** / **APPLY_BACK_FACE_CULLING:** Toggle depth sort and back-face culling in `index.ts`.
 
 ## Project structure
@@ -37,7 +38,7 @@ src/
   index.html          # Canvas and script
   core/
     Camera.ts        # Perspective camera (view / projection matrices)
-    Canvas.ts        # HTML5 Canvas wrapper (clear, drawLine, drawLines, blit, fillPolygon, drawText)
+    Canvas.ts        # HTML5 Canvas wrapper (clear, drawLine, drawLines, blit, fillPolygon, drawText, drawFilledCircle)
     Framebuffer.ts   # Color buffer (ImageData, clear, putPixel)
     rasterizer.ts   # rasterizeTriangle, rasterizeTriangleGouraud, rasterizeTriangleGouraudTextured
     renderHelpers.ts # projectSceneToFilledPolygons, frustum/backface/depth, Gouraud vertex collection
@@ -90,10 +91,11 @@ Each frame:
 2. `projectSceneToFilledPolygons(scene, viewProj, viewport, { applyBackFaceCulling, applyPaintersAlgorithm, textureMap })` → batches of Gouraud vertices (x, y, r, g, b, invW, u?, v?) and optional texture.
 3. For each batch: if `batch.texture` use `rasterizeTriangleGouraudTextured(framebuffer, a, b, c, texture)`, else `rasterizeTriangleGouraud(framebuffer, a, b, c)`.
 4. `canvas.blit(framebuffer)`.
-5. If debug: draw normals with `canvas.drawLines(debugNormalSegments, "#ff69b4")`; if SHOW_FPS, `canvas.drawText(\`${fps} FPS\`, 10, height - 10)`.
+5. If debug: draw normals with `canvas.drawLines(debugNormalSegments, "#ff69b4")`; if SHOW_FPS, `canvas.drawText(\`${fps} FPS\`, 10, height - 10)`; if SHOW_LIGHT_SOURCES, project each point/spot light position to screen and draw `canvas.drawFilledCircle(x, y, radius, "#ffa500", "#ff0000")` (radius 2–16 px by z).
 
 ### Flags (in `index.ts`)
 - **SHOW_FPS** (default `true`): Show FPS in bottom-left.
+- **SHOW_LIGHT_SOURCES** (default `true`): Draw point/spot light positions as orange circles (red outline), radius 2–16 px by distance.
 - **DEBUG_SHOW_DIRECTION** (default `false`): Draw polygon normals in pink.
 - **APPLY_PAINTERS_ALGORITHM** (default `true`): Sort polygons by depth (farthest first).
 - **APPLY_BACK_FACE_CULLING** (default `true`): Skip polygons facing away from the camera.
@@ -123,7 +125,7 @@ Mesh winding: both triangles of each quad should be wound **CCW when viewed from
    - For each polygon: compute face normal (e1×e2); if back-face culling, skip when dot(v0, n) ≥ 0; build Gouraud vertices (per-vertex lighting, optional UVs); depth = min vertex z; optional texture from textureMap.
    - If Painter's: sort batches by depth ascending, tie-break by batchIndex.
    - For each batch: rasterize triangle (Gouraud or Gouraud textured) into framebuffer.
-   - Blit framebuffer to canvas; draw debug normals and FPS if enabled.
+   - Blit framebuffer to canvas; draw debug normals, FPS, and light-source circles if enabled.
 
 Pipeline: **JSON + textures → Mesh → Object3D → Scene → frustum cull → camera-space transform → back-face cull → per-vertex lighting + UVs → depth sort → rasterize (Gouraud/textured) → blit → debug overlay.**
 
@@ -135,6 +137,6 @@ This implementation follows [docs/plan.md](docs/plan.md):
 - **Phase 4:** Gouraud shading (vertex color interpolation, perspective-correct when invW present).
 - **Phases 5–7:** Per-vertex normals (from mesh or face), Phong-style lighting (Lighting.ts), per-vertex lighting with Gouraud.
 - **Phase 8:** Texture mapping (UVs, loadTexture/loadTexturesForMesh, perspective-correct u/v, texture × lighting).
-- **Phase 9:** Demo with textured cube, debug options (normals, FPS), and this README.
+- **Phase 9:** Demo with textured cube, debug options (normals, FPS, light sources), and this README.
 
 No z-buffer; visibility is handled by back-face culling and Painter's algorithm only.

@@ -105,6 +105,51 @@ export class Canvas {
   }
 
   /**
+   * Draw a filled circle with optional stroke outline.
+   * @param x - Center x (pixels)
+   * @param y - Center y (pixels)
+   * @param radius - Radius in pixels
+   * @param fillColor - Fill color (e.g. "#ffa500")
+   * @param strokeColor - Optional outline color (e.g. "#ff0000")
+   * @param lineWidth - Optional stroke width (default 1)
+   */
+  drawFilledCircle(
+    x: number,
+    y: number,
+    radius: number,
+    fillColor: string,
+    strokeColor?: string,
+    lineWidth: number = 1
+  ): void {
+    this.ctx.beginPath();
+    this.ctx.arc(x, y, radius, 0, Math.PI * 2);
+    this.ctx.fillStyle = fillColor;
+    this.ctx.fill();
+    if (strokeColor != null) {
+      this.ctx.strokeStyle = strokeColor;
+      this.ctx.lineWidth = lineWidth;
+      this.ctx.stroke();
+    }
+  }
+
+  /**
+   * Draw text at (x, y). Optional color and font; default baseline "bottom" for y = bottom edge.
+   */
+  drawText(
+    text: string,
+    x: number,
+    y: number,
+    options: { color?: string; font?: string } = {}
+  ): void {
+    this.ctx.save();
+    this.ctx.fillStyle = options.color ?? "#ffffff";
+    this.ctx.font = options.font ?? "14px monospace";
+    this.ctx.textBaseline = "bottom";
+    this.ctx.fillText(text, x, y);
+    this.ctx.restore();
+  }
+
+  /**
    * Draw the framebuffer's color buffer to the canvas via putImageData.
    */
   blit(framebuffer: Framebuffer): void {

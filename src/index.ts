@@ -4,7 +4,8 @@ import { loadTexturesForMesh } from "./io/textureLoader";
 import { Vec3 } from "./math/vec3";
 import { projectSceneToFilledPolygons } from "./core/renderHelpers";
 import type { DirectionalLight, PointLight } from "./core/Lighting";
-import { Viewport } from "./math/projection";
+import { Viewport, projectPoint } from "./math/projection";
+import { Vec4 } from "./math/vec4";
 import { degToRad } from "./math/utils";
 import { Canvas } from "./core/Canvas";
 import { Framebuffer } from "./core/Framebuffer";
@@ -45,6 +46,12 @@ const input = new InputController();
 /** When true, draw each polygon's surface normal as a small pink line. */
 const DEBUG_SHOW_DIRECTION = false;
 
+/** When true, show frames per second in the bottom-left corner. */
+const SHOW_FPS = true;
+
+/** When true, draw point/spot light positions as orange circles (radius by z-distance). */
+const SHOW_LIGHT_SOURCES = false;
+
 /** When true, sort polygons by depth (farthest first) before drawing (Painter's algorithm). */
 const APPLY_PAINTERS_ALGORITHM = true;
 
@@ -73,7 +80,7 @@ async function main() {
     } as DirectionalLight);
     scene.lights.push({
       type: "point",
-      position: new Vec3(0, 2, 6),
+      position: new Vec3(0, 3, 6),
       color: { r: 1, g: 0.9, b: 0.85 },
       intensity: 1.2,
       attenuation: { constant: 0.2, linear: 0.1, quadratic: 0.02 },
@@ -141,6 +148,25 @@ async function main() {
       canvas.blit(framebuffer);
       if (debugNormalSegments.length > 0) {
         canvas.drawLines(debugNormalSegments, "#ff69b4", 1);
+      }
+      if (SHOW_FPS) {
+        const fps = deltaTime > 0 ? Math.round(1 / deltaTime) : 0;
+        canvas.drawText(`${fps} FPS`, 10, canvas.getHeight() - 10, {
+          color: "#00ff00",
+          font: "14px monospace",
+        });
+      }
+      if (SHOW_LIGHT_SOURCES) {
+        for (const light of scene.lights) {
+          if (light.type !== "point" && light.type !== "spot") continue;
+          const pos = light.position;
+          const camV4 = view.transformVec4(new Vec4(pos.x, pos.y, pos.z, 1));
+          const cam = new Vec3(camV4.x, camV4.y, camV4.z);
+          const proj = projectPoint(cam, projection, viewport);
+          if (!proj || proj.behind) continue;
+          const radius = Math.min(16, Math.max(2, 80 / Math.max(0.1, -cam.z)));
+          canvas.drawFilledCircle(proj.x, proj.y, radius, "#ffa500", "#ff0000", 2);
+        }
       }
 
       requestAnimationFrame(render);
