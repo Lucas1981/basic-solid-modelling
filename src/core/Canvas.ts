@@ -1,4 +1,5 @@
 import { Vec2 } from "../math/vec2";
+import { Framebuffer } from "./Framebuffer";
 
 /**
  * Wrapper class for HTML5 Canvas that provides a clean API
@@ -101,6 +102,13 @@ export class Canvas {
     }
 
     this.ctx.stroke();
+  }
+
+  /**
+   * Draw the framebuffer's color buffer to the canvas via putImageData.
+   */
+  blit(framebuffer: Framebuffer): void {
+    this.ctx.putImageData(framebuffer.colorBuffer, 0, 0);
   }
 
   /**

@@ -2,15 +2,23 @@ import { Vec2 } from "../math/vec2";
 import { Vec3 } from "../math/vec3";
 import { Vec4 } from "../math/vec4";
 import { Mat4 } from "../math/mat4";
-import { projectPoint, Viewport } from "../math/projection";
+import { projectPoint, Viewport, type ProjectedPoint } from "../math/projection";
 import { isSphereInFrustum } from "../math/frustum";
 import { Scene } from "./Scene";
 import type { Polygon } from "../io/meshLoader";
+import {
+  computeLighting,
+  hexToColorRGB,
+  transformLightsToCameraSpace,
+  type Light,
+  type Material,
+} from "./Lighting";
 
-/** Geometry that has vertices and polygons (Mesh or MeshData). */
+/** Geometry that has vertices, polygons, and optional per-vertex normals. */
 export interface MeshLike {
   vertices: Vec3[];
   polygons: Polygon[];
+  vertexNormals?: Vec3[];
 }
 
 /** A batch of line segments drawn in a single color (e.g. one polygon's wireframe). */
@@ -25,11 +33,21 @@ export interface DrawablePolygonBatch extends ColoredSegmentBatch {
   depth: number;
 }
 
-/** A filled polygon batch: screen-space vertices in order, color, and depth for Painter's sort. */
+/** Screen-space vertex with per-vertex color for Gouraud shading. invW = 1/w for perspective-correct interpolation. */
+export interface GouraudVertex {
+  x: number;
+  y: number;
+  r: number;
+  g: number;
+  b: number;
+  /** 1/w from clip space; when present, rasterizer uses perspective-correct interpolation. */
+  invW?: number;
+}
+
+/** A filled polygon batch: Gouraud vertices in order and depth for Painter's sort. */
 export interface FilledPolygonBatch {
-  /** Screen-space 2D vertices in polygon order (for moveTo/lineTo/fill). */
-  vertices: Vec2[];
-  color: string;
+  /** Screen-space vertices with per-vertex color (and optional invW). */
+  vertices: GouraudVertex[];
   /** Camera-space z (negative in front of camera); used for depth sort (farthest first). */
   depth: number;
 }
@@ -74,6 +92,92 @@ export function projectMeshVertices(
 }
 
 /**
+ * Project all mesh vertices to screen space, returning full ProjectedPoint (x, y, w) for Gouraud/perspective.
+ */
+function projectMeshVerticesFull(
+  mesh: MeshLike,
+  mvp: Mat4,
+  viewport: Viewport,
+): (ProjectedPoint | null)[] {
+  const projected: (ProjectedPoint | null)[] = [];
+  for (const vertex of mesh.vertices) {
+    const p = projectPoint(vertex, mvp, viewport);
+    if (p && !p.behind) {
+      projected.push(p);
+    } else {
+      projected.push(null);
+    }
+  }
+  return projected;
+}
+
+/** Parse "#rrggbb" or "#rgb" to [r, g, b] 0–255. */
+function parseColorToRgb(color: string): [number, number, number] {
+  const hex = color.startsWith("#") ? color.slice(1) : color;
+  if (hex.length === 6) {
+    return [
+      parseInt(hex.slice(0, 2), 16),
+      parseInt(hex.slice(2, 4), 16),
+      parseInt(hex.slice(4, 6), 16),
+    ];
+  }
+  if (hex.length === 3) {
+    return [
+      parseInt(hex[0] + hex[0], 16),
+      parseInt(hex[1] + hex[1], 16),
+      parseInt(hex[2] + hex[2], 16),
+    ];
+  }
+  return [0, 0, 0];
+}
+
+/**
+ * Build Gouraud vertices for a single polygon: per-vertex color from computeLighting.
+ * cameraSpaceNormals: per-vertex normals (length = mesh.vertices). If empty, faceNormal is used for all vertices (flat).
+ */
+function collectPolygonGouraudVertices(
+  projectedPoints: (ProjectedPoint | null)[],
+  polygon: Polygon,
+  cameraSpaceVertices: Vec3[],
+  cameraSpaceNormals: Vec3[],
+  faceNormal: Vec3 | null,
+  material: Material,
+  lights: Light[],
+  ambientColor: { r: number; g: number; b: number },
+): GouraudVertex[] | null {
+  const indices = polygon.vertexIndices;
+  if (indices.length < 2) return null;
+  const vertices: GouraudVertex[] = [];
+  const useFaceNormal = cameraSpaceNormals.length === 0 && faceNormal !== null;
+  for (const i of indices) {
+    const p = projectedPoints[i];
+    if (!p) return null;
+    const pos = cameraSpaceVertices[i];
+    const normal = useFaceNormal
+      ? faceNormal
+      : cameraSpaceNormals[i] ?? faceNormal ?? new Vec3(0, 1, 0);
+    const viewDir = pos.negate();
+    const color = computeLighting(
+      pos,
+      normal,
+      viewDir,
+      material,
+      lights,
+      ambientColor,
+    );
+    vertices.push({
+      x: p.x,
+      y: p.y,
+      r: Math.round(Math.max(0, Math.min(255, color.r * 255))),
+      g: Math.round(Math.max(0, Math.min(255, color.g * 255))),
+      b: Math.round(Math.max(0, Math.min(255, color.b * 255))),
+      invW: 1 / p.w,
+    });
+  }
+  return vertices;
+}
+
+/**
  * Transform mesh vertices to camera space (view * model).
  * Returns array of Vec3 (x, y, z) in camera space; z is negative in front of camera.
  */
@@ -85,6 +189,27 @@ function transformVerticesToCameraSpace(
   for (const v of mesh.vertices) {
     const c = viewModel.transformVec4(new Vec4(v.x, v.y, v.z, 1));
     out.push(new Vec3(c.x, c.y, c.z));
+  }
+  return out;
+}
+
+/**
+ * Transform mesh normals to camera space using inverse transpose of view*model.
+ * If mesh has no vertexNormals, returns empty array (caller should use face normals or skip lighting).
+ */
+function transformNormalsToCameraSpace(
+  mesh: MeshLike,
+  viewModel: Mat4,
+): Vec3[] {
+  if (!mesh.vertexNormals || mesh.vertexNormals.length === 0) return [];
+  const normalMat = viewModel.normalMatrix();
+  if (!normalMat) return mesh.vertexNormals.map((n) => n.clone());
+  const out: Vec3[] = [];
+  for (const n of mesh.vertexNormals) {
+    const c = normalMat.transformVec4(new Vec4(n.x, n.y, n.z, 0));
+    const v = new Vec3(c.x, c.y, c.z);
+    const len = v.length();
+    out.push(len > 1e-10 ? v.normalize() : new Vec3(0, 1, 0));
   }
   return out;
 }
@@ -133,7 +258,9 @@ function polygonCenter(
   cameraSpaceVertices: Vec3[],
 ): Vec3 {
   if (vertexIndices.length === 0) return new Vec3(0, 0, 0);
-  let x = 0, y = 0, z = 0;
+  let x = 0,
+    y = 0,
+    z = 0;
   for (const i of vertexIndices) {
     const v = cameraSpaceVertices[i];
     x += v.x;
@@ -261,17 +388,15 @@ export function projectSceneToPolygonWireframe(
       }
 
       if (options?.debugShowDirection && normal) {
-        const center = polygonCenter(polygon.vertexIndices, cameraSpaceVertices);
+        const center = polygonCenter(
+          polygon.vertexIndices,
+          cameraSpaceVertices,
+        );
         const end = center.add(normal.scale(DEBUG_NORMAL_LENGTH));
         const pStart = projectPoint(center, projection, viewport);
         const pEnd = projectPoint(end, projection, viewport);
         if (pStart && !pStart.behind && pEnd && !pEnd.behind) {
-          debugNormalSegments.push([
-            pStart.x,
-            pStart.y,
-            pEnd.x,
-            pEnd.y,
-          ]);
+          debugNormalSegments.push([pStart.x, pStart.y, pEnd.x, pEnd.y]);
         }
       }
     }
@@ -287,7 +412,7 @@ export function projectSceneToPolygonWireframe(
 /**
  * Project the whole scene to filled polygon batches (screen-space vertices per polygon).
  * Reuses the same pipeline as wireframe: frustum culling, back-face culling, depth for Painter's sort.
- * Returns batches suitable for Canvas.fillPolygon (vertices in order, color, depth).
+ * Returns batches with Gouraud vertices (x, y, r, g, b, invW) and depth for Painter's sort.
  */
 export function projectSceneToFilledPolygons(
   scene: Scene,
@@ -301,6 +426,8 @@ export function projectSceneToFilledPolygons(
   const view = camera.getViewMatrix();
   const aspect = viewport.width / viewport.height;
   const projection = camera.getProjectionMatrix(aspect);
+  const lightsCamera = transformLightsToCameraSpace(scene.lights, view);
+  const ambientColor = scene.ambientColor;
 
   for (const object of scene.objects) {
     const mesh = object.mesh;
@@ -327,32 +454,45 @@ export function projectSceneToFilledPolygons(
     const viewModel = view.multiply(model);
     const mvp = viewProj.multiply(model);
     const cameraSpaceVertices = transformVerticesToCameraSpace(mesh, viewModel);
-    const projectedVertices = projectMeshVertices(mesh, mvp, viewport);
+    const cameraSpaceNormals = transformNormalsToCameraSpace(mesh, viewModel);
+    const projectedPoints = projectMeshVerticesFull(mesh, mvp, viewport);
 
     for (const polygon of mesh.polygons) {
-      const normal = polygonNormal(polygon.vertexIndices, cameraSpaceVertices);
+      const faceNormal = polygonNormal(polygon.vertexIndices, cameraSpaceVertices);
       if (options?.applyBackFaceCulling) {
-        if (normal !== null && normal.z < 0) continue;
+        if (faceNormal !== null && faceNormal.z < 0) continue;
       }
 
-      const vertices = collectPolygonScreenVertices(projectedVertices, polygon);
+      const material: Material = {
+        diffuse: hexToColorRGB(polygon.color),
+        specular: { r: 0.5, g: 0.5, b: 0.5 },
+        shininess: 32,
+      };
+      const vertices = collectPolygonGouraudVertices(
+        projectedPoints,
+        polygon,
+        cameraSpaceVertices,
+        cameraSpaceNormals,
+        faceNormal,
+        material,
+        lightsCamera,
+        ambientColor,
+      );
       if (vertices !== null && vertices.length >= 2) {
         const depth = polygonDepth(polygon.vertexIndices, cameraSpaceVertices);
-        batches.push({ vertices, color: polygon.color, depth });
+        batches.push({ vertices, depth });
       }
 
-      if (options?.debugShowDirection && normal) {
-        const center = polygonCenter(polygon.vertexIndices, cameraSpaceVertices);
-        const end = center.add(normal.scale(DEBUG_NORMAL_LENGTH));
+      if (options?.debugShowDirection && faceNormal) {
+        const center = polygonCenter(
+          polygon.vertexIndices,
+          cameraSpaceVertices,
+        );
+        const end = center.add(faceNormal.scale(DEBUG_NORMAL_LENGTH));
         const pStart = projectPoint(center, projection, viewport);
         const pEnd = projectPoint(end, projection, viewport);
         if (pStart && !pStart.behind && pEnd && !pEnd.behind) {
-          debugNormalSegments.push([
-            pStart.x,
-            pStart.y,
-            pEnd.x,
-            pEnd.y,
-          ]);
+          debugNormalSegments.push([pStart.x, pStart.y, pEnd.x, pEnd.y]);
         }
       }
     }

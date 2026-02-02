@@ -1,10 +1,13 @@
-// Entry point for the 3D solid modeling engine (Phase 1: flat solid fill)
+// Entry point for the 3D solid modeling engine (Phase 5–7: lighting)
 import { loadMesh } from "./io/meshLoader";
 import { Vec3 } from "./math/vec3";
 import { projectSceneToFilledPolygons } from "./core/renderHelpers";
+import type { DirectionalLight, PointLight } from "./core/Lighting";
 import { Viewport } from "./math/projection";
 import { degToRad } from "./math/utils";
 import { Canvas } from "./core/Canvas";
+import { Framebuffer } from "./core/Framebuffer";
+import { rasterizeTriangleGouraud } from "./core/rasterizer";
 import { Mesh } from "./core/Mesh";
 import { Object3D } from "./core/Object3D";
 import { Scene } from "./core/Scene";
@@ -45,7 +48,7 @@ const DEBUG_SHOW_DIRECTION = false;
 const APPLY_PAINTERS_ALGORITHM = true;
 
 /** When true, skip polygons facing away from the camera (back-face culling). */
-const APPLY_BACK_FACE_CULLING = true;
+const APPLY_BACK_FACE_CULLING = false;
 
 // Load the cube mesh and start rendering
 async function main() {
@@ -57,10 +60,28 @@ async function main() {
     scene.add(new Object3D(mesh, new Vec3(-2, 0, 0)));
     scene.add(new Object3D(mesh, new Vec3(2, 0, 0)));
 
+    // Lights (world space): directional from above-right-front, point light in front
+    const dirToLight = new Vec3(1, 1.5, 0.5).normalize();
+    scene.lights.push({
+      type: "directional",
+      direction: dirToLight,
+      color: { r: 1, g: 1, b: 1 },
+      intensity: 0.9,
+    } as DirectionalLight);
+    scene.lights.push({
+      type: "point",
+      position: new Vec3(0, 2, 6),
+      color: { r: 1, g: 0.9, b: 0.85 },
+      intensity: 1.2,
+      attenuation: { constant: 0.2, linear: 0.1, quadratic: 0.02 },
+    } as PointLight);
+    scene.ambientColor = { r: 0.12, g: 0.12, b: 0.18 };
+
+    const framebuffer = new Framebuffer(viewport.width, viewport.height);
     let lastTime = performance.now();
 
     function render(currentTime: number) {
-      canvas.clear();
+      framebuffer.clear("#000000");
 
       const now = currentTime;
       const deltaTime = (now - lastTime) / 1000;
@@ -74,12 +95,10 @@ async function main() {
       // --- Object animation ---
       const angle = (now / 1000) * ((Math.PI * 2) / 4);
 
-      // Update each object's rotation (both spin around Y)
       for (const object of scene.objects) {
         object.rotation.y = angle;
       }
 
-      // Recompute view-projection from current camera
       const view = camera.getViewMatrix();
       const projection = camera.getProjectionMatrix(aspect);
       const viewProj = projection.multiply(view);
@@ -95,8 +114,17 @@ async function main() {
         },
       );
       for (const batch of batches) {
-        canvas.fillPolygon(batch.vertices, batch.color);
+        if (batch.vertices.length >= 3) {
+          rasterizeTriangleGouraud(
+            framebuffer,
+            batch.vertices[0],
+            batch.vertices[1],
+            batch.vertices[2],
+          );
+        }
       }
+
+      canvas.blit(framebuffer);
       if (debugNormalSegments.length > 0) {
         canvas.drawLines(debugNormalSegments, "#ff69b4", 1);
       }

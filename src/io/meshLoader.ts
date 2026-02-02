@@ -4,18 +4,24 @@ export interface Polygon {
   color: string;
   /** Indices into the mesh vertices array. Renderer draws lines 1-2, 2-3, ..., n-1 (last back to first). */
   vertexIndices: number[];
+  /** Optional indices into mesh normals array; if absent, vertexIndices are used for normals when normals exist. */
+  normalIndices?: number[];
 }
 
 export interface MeshData {
   vertices: Vec3[];
   polygons: Polygon[];
+  /** Optional per-vertex normals (same count as vertices or separate index set). */
+  normals?: Vec3[];
 }
 
 export interface MeshJSON {
   vertices: Array<{ x: number; y: number; z?: number }>;
+  normals?: Array<{ x: number; y: number; z?: number }>;
   polygons?: Array<{
     color: string;
     vertexIndices: number[];
+    normalIndices?: number[];
   }>;
 }
 
@@ -33,10 +39,16 @@ export async function loadMesh(url: string): Promise<MeshData> {
   const json: MeshJSON = await response.json();
 
   const vertices = json.vertices.map((v) => new Vec3(v.x, v.y, v.z ?? 0));
-  const polygons: Polygon[] = json.polygons ?? [];
+  const normals = json.normals?.map((n) => new Vec3(n.x, n.y, n.z ?? 0));
+  const polygons: Polygon[] = (json.polygons ?? []).map((p) => ({
+    color: p.color,
+    vertexIndices: p.vertexIndices,
+    normalIndices: p.normalIndices,
+  }));
 
   return {
     vertices,
     polygons,
+    normals,
   };
 }
