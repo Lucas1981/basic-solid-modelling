@@ -5,7 +5,7 @@ import { Mat4 } from "../math/mat4";
 import { projectPoint, Viewport, type ProjectedPoint } from "../math/projection";
 import { isSphereInFrustum } from "../math/frustum";
 import { Scene } from "./Scene";
-import type { Polygon } from "../io/meshLoader";
+import type { MeshMaterial, Polygon } from "../io/meshLoader";
 import {
   computeLighting,
   hexToColorRGB,
@@ -14,12 +14,13 @@ import {
   type Material,
 } from "./Lighting";
 
-/** Geometry that has vertices, polygons, optional normals, and optional UVs. */
+/** Geometry that has vertices, polygons, optional normals, optional UVs, and optional material. */
 export interface MeshLike {
   vertices: Vec3[];
   polygons: Polygon[];
   vertexNormals?: Vec3[];
   uvs?: Array<{ u: number; v: number }>;
+  material?: MeshMaterial;
 }
 
 /** A batch of line segments drawn in a single color (e.g. one polygon's wireframe). */
@@ -498,8 +499,10 @@ export function projectSceneToFilledPolygons(
 
       const material: Material = {
         diffuse: hexToColorRGB(polygon.color),
-        specular: { r: 0.5, g: 0.5, b: 0.5 },
-        shininess: 32,
+        specular: mesh.material
+          ? hexToColorRGB(mesh.material.specular)
+          : { r: 0.5, g: 0.5, b: 0.5 },
+        shininess: mesh.material?.shininess ?? 32,
       };
       const meshUvs = mesh.uvs ?? [];
       const vertices = collectPolygonGouraudVertices(

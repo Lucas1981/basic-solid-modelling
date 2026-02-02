@@ -17,6 +17,12 @@ export interface Polygon {
   uvIndices?: number[];
 }
 
+/** Optional mesh-wide material: specular (hex) and shininess. */
+export interface MeshMaterial {
+  specular: string;
+  shininess: number;
+}
+
 export interface MeshData {
   vertices: Vec3[];
   polygons: Polygon[];
@@ -24,12 +30,15 @@ export interface MeshData {
   normals?: Vec3[];
   /** Optional UV coordinates (indexed by polygon uvIndices). */
   uvs?: UV[];
+  /** Optional material (specular color and shininess). */
+  material?: MeshMaterial;
 }
 
 export interface MeshJSON {
   vertices: Array<{ x: number; y: number; z?: number }>;
   normals?: Array<{ x: number; y: number; z?: number }>;
   uvs?: Array<{ u: number; v: number }>;
+  material?: { specular: string; shininess: number };
   polygons?: Array<{
     color: string;
     vertexIndices: number[];
@@ -68,5 +77,6 @@ export async function loadMesh(url: string): Promise<MeshData> {
     polygons,
     normals,
     uvs,
+    material: json.material,
   };
 }

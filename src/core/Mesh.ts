@@ -1,9 +1,9 @@
 import { Vec3 } from "../math/vec3";
-import { MeshData, Polygon, UV } from "../io/meshLoader";
+import { MeshData, MeshMaterial, Polygon, UV } from "../io/meshLoader";
 
 /**
  * Mesh holds immutable geometry: local-space vertices (3D positions),
- * per-vertex normals, UVs for texturing, polygons, and bounding radius.
+ * per-vertex normals, UVs for texturing, polygons, bounding radius, and optional material.
  */
 export class Mesh {
   readonly vertices: Vec3[];
@@ -11,12 +11,14 @@ export class Mesh {
   readonly uvs: UV[];
   readonly polygons: Polygon[];
   readonly boundingRadius: number;
+  readonly material?: MeshMaterial;
 
   constructor(
     vertices: Vec3[],
     polygons: Polygon[] = [],
     vertexNormals?: Vec3[],
     uvs: UV[] = [],
+    material?: MeshMaterial,
   ) {
     this.vertices = vertices;
     this.polygons = polygons;
@@ -24,6 +26,7 @@ export class Mesh {
       vertexNormals ?? Mesh.computeVertexNormals(vertices, polygons);
     this.uvs = uvs;
     this.boundingRadius = Mesh.computeBoundingRadius(vertices);
+    this.material = material;
   }
 
   /**
@@ -38,6 +41,7 @@ export class Mesh {
       data.polygons,
       vertexNormals,
       data.uvs ?? [],
+      data.material,
     );
   }
 
