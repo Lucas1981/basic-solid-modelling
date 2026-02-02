@@ -49,7 +49,7 @@ const DEBUG_SHOW_DIRECTION = false;
 const APPLY_PAINTERS_ALGORITHM = true;
 
 /** When true, skip polygons facing away from the camera (back-face culling). */
-const APPLY_BACK_FACE_CULLING = false;
+const APPLY_BACK_FACE_CULLING = true;
 
 // Load the cube mesh and start rendering
 async function main() {

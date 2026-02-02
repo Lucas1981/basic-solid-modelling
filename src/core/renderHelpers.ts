@@ -52,8 +52,9 @@ export interface GouraudVertex {
 export interface FilledPolygonBatch {
   vertices: GouraudVertex[];
   depth: number;
-  /** When set, rasterizer samples texture and multiplies by vertex (lighting) color. */
   texture?: ImageData;
+  /** Stable sort tie-breaker when depths are equal (avoids blipping). */
+  batchIndex: number;
 }
 
 /** Result of projectSceneToPolygonWireframe: batches to draw, and optional debug normal segments. */
@@ -227,7 +228,9 @@ function transformNormalsToCameraSpace(
 }
 
 /**
- * Compute polygon depth for Painter's algorithm: average camera-space z of its vertices.
+ * Compute polygon depth for Painter's algorithm: camera-space z of the farthest vertex
+ * (minimum z, since z is negative in front of camera). Using farthest vertex gives
+ * stable sort order and matches the idea "draw the polygon that is furthest back first".
  * Smaller z = farther from camera (draw first).
  */
 function polygonDepth(
@@ -235,16 +238,20 @@ function polygonDepth(
   cameraSpaceVertices: Vec3[],
 ): number {
   if (vertexIndices.length === 0) return 0;
-  let sum = 0;
-  for (const i of vertexIndices) {
-    sum += cameraSpaceVertices[i].z;
+  let minZ = cameraSpaceVertices[vertexIndices[0]].z;
+  for (let k = 1; k < vertexIndices.length; k++) {
+    const z = cameraSpaceVertices[vertexIndices[k]].z;
+    if (z < minZ) minZ = z;
   }
-  return sum / vertexIndices.length;
+  return minZ;
 }
 
 /**
  * Compute polygon surface normal in camera space from first three vertices.
- * Outward normal: (v1 - v0) × (v2 - v0), normalized. Returns null if degenerate.
+ * Uses cross(e1, e2) with e1 = v1-v0, e2 = v2-v0 so that when the mesh is wound
+ * CCW when viewed from outside, n points outward. Back-face: cull when dot(v0, n) >= 0.
+ * Both triangles of each quad must use the same winding (both CCW from outside).
+ * Returns null if degenerate.
  */
 function polygonNormal(
   vertexIndices: number[],
@@ -260,6 +267,22 @@ function polygonNormal(
   const len = n.length();
   if (len === 0) return null;
   return n.normalize();
+}
+
+/**
+ * Back-face test using dot(vertex, normal) like the reference implementation.
+ * Cull when dot(v0, n) >= 0 (polygon is on the "positive" side of its plane from the camera).
+ * This is axis-independent and avoids false positives from relying on normal.z alone.
+ */
+function isBackFacing(
+  vertexIndices: number[],
+  cameraSpaceVertices: Vec3[],
+  normal: Vec3 | null,
+): boolean {
+  if (normal === null || vertexIndices.length < 3) return false;
+  const v0 = cameraSpaceVertices[vertexIndices[0]];
+  const dp = v0.x * normal.x + v0.y * normal.y + v0.z * normal.z;
+  return dp >= 0;
 }
 
 /**
@@ -387,9 +410,8 @@ export function projectSceneToPolygonWireframe(
 
     for (const polygon of mesh.polygons) {
       const normal = polygonNormal(polygon.vertexIndices, cameraSpaceVertices);
-      if (options?.applyBackFaceCulling) {
-        // Back-face culling: in camera space camera looks down -Z, so front-facing = normal.z > 0
-        if (normal !== null && normal.z < 0) continue;
+      if (options?.applyBackFaceCulling && isBackFacing(polygon.vertexIndices, cameraSpaceVertices, normal)) {
+        continue;
       }
 
       const segments = collectPolygonSegments(projectedVertices, polygon);
@@ -470,8 +492,8 @@ export function projectSceneToFilledPolygons(
 
     for (const polygon of mesh.polygons) {
       const faceNormal = polygonNormal(polygon.vertexIndices, cameraSpaceVertices);
-      if (options?.applyBackFaceCulling) {
-        if (faceNormal !== null && faceNormal.z < 0) continue;
+      if (options?.applyBackFaceCulling && isBackFacing(polygon.vertexIndices, cameraSpaceVertices, faceNormal)) {
+        continue;
       }
 
       const material: Material = {
@@ -498,7 +520,7 @@ export function projectSceneToFilledPolygons(
           polygon.textureUrl && options?.textureMap
             ? options.textureMap.get(polygon.textureUrl)
             : undefined;
-        batches.push({ vertices, depth, texture });
+        batches.push({ vertices, depth, texture, batchIndex: batches.length });
       }
 
       if (options?.debugShowDirection && faceNormal) {
@@ -517,7 +539,11 @@ export function projectSceneToFilledPolygons(
   }
 
   if (options?.applyPaintersAlgorithm) {
-    batches.sort((a, b) => a.depth - b.depth);
+    batches.sort((a, b) => {
+      const d = a.depth - b.depth;
+      if (Math.abs(d) < 1e-9) return a.batchIndex - b.batchIndex;
+      return d;
+    });
   }
 
   return { batches, debugNormalSegments };
