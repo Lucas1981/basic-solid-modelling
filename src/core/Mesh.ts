@@ -3,7 +3,7 @@ import { MeshData, MeshMaterial, Polygon, UV } from "../io/meshLoader";
 
 /**
  * Mesh holds immutable geometry: local-space vertices (3D positions),
- * per-vertex normals, UVs for texturing, polygons, bounding radius, and optional material.
+ * per-vertex normals, UVs for texturing, polygons, bounding radius, optional material, and lighting option.
  */
 export class Mesh {
   readonly vertices: Vec3[];
@@ -12,6 +12,8 @@ export class Mesh {
   readonly polygons: Polygon[];
   readonly boundingRadius: number;
   readonly material?: MeshMaterial;
+  /** When true, use face normal for lighting (flat per-face); when false, per-vertex. Default true. */
+  readonly useFaceNormalsForLighting: boolean;
 
   constructor(
     vertices: Vec3[],
@@ -19,6 +21,7 @@ export class Mesh {
     vertexNormals?: Vec3[],
     uvs: UV[] = [],
     material?: MeshMaterial,
+    useFaceNormalsForLighting: boolean = true,
   ) {
     this.vertices = vertices;
     this.polygons = polygons;
@@ -27,6 +30,7 @@ export class Mesh {
     this.uvs = uvs;
     this.boundingRadius = Mesh.computeBoundingRadius(vertices);
     this.material = material;
+    this.useFaceNormalsForLighting = useFaceNormalsForLighting;
   }
 
   /**
@@ -42,6 +46,7 @@ export class Mesh {
       vertexNormals,
       data.uvs ?? [],
       data.material,
+      data.useFaceNormalsForLighting ?? true,
     );
   }
 

@@ -32,6 +32,8 @@ export interface MeshData {
   uvs?: UV[];
   /** Optional material (specular color and shininess). */
   material?: MeshMaterial;
+  /** When true, use face normal for lighting (flat per-face); when false, use per-vertex normals. Default true. */
+  useFaceNormalsForLighting?: boolean;
 }
 
 export interface MeshJSON {
@@ -39,6 +41,8 @@ export interface MeshJSON {
   normals?: Array<{ x: number; y: number; z?: number }>;
   uvs?: Array<{ u: number; v: number }>;
   material?: { specular: string; shininess: number };
+  /** When true, use face normal for lighting (flat per-face); when false, per-vertex. Omit for default (true). */
+  useFaceNormalsForLighting?: boolean;
   polygons?: Array<{
     color: string;
     vertexIndices: number[];
@@ -78,5 +82,6 @@ export async function loadMesh(url: string): Promise<MeshData> {
     normals,
     uvs,
     material: json.material,
+    useFaceNormalsForLighting: json.useFaceNormalsForLighting,
   };
 }

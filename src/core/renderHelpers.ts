@@ -14,13 +14,15 @@ import {
   type Material,
 } from "./Lighting";
 
-/** Geometry that has vertices, polygons, optional normals, optional UVs, and optional material. */
+/** Geometry that has vertices, polygons, optional normals, optional UVs, optional material, and optional lighting mode. */
 export interface MeshLike {
   vertices: Vec3[];
   polygons: Polygon[];
   vertexNormals?: Vec3[];
   uvs?: Array<{ u: number; v: number }>;
   material?: MeshMaterial;
+  /** When true, use face normal for lighting (flat per-face); when false, per-vertex. Default true. */
+  useFaceNormalsForLighting?: boolean;
 }
 
 /** A batch of line segments drawn in a single color (e.g. one polygon's wireframe). */
@@ -157,11 +159,12 @@ function collectPolygonGouraudVertices(
   ambientColor: { r: number; g: number; b: number },
   uvs: Array<{ u: number; v: number }>,
   uvIndices: number[] | undefined,
+  useFaceNormalsForLighting: boolean,
 ): GouraudVertex[] | null {
   const indices = polygon.vertexIndices;
   if (indices.length < 2) return null;
   const vertices: GouraudVertex[] = [];
-  const useFaceNormal = cameraSpaceNormals.length === 0 && faceNormal !== null;
+  const defaultNormal = new Vec3(0, 1, 0);
   const hasUVs = uvs.length > 0 && uvIndices && uvIndices.length === indices.length;
   const useSeparateSpecular = Boolean(polygon.textureUrl && hasUVs);
 
@@ -170,9 +173,10 @@ function collectPolygonGouraudVertices(
     const p = projectedPoints[i];
     if (!p) return null;
     const pos = cameraSpaceVertices[i];
-    const normal = useFaceNormal
-      ? faceNormal
-      : cameraSpaceNormals[i] ?? faceNormal ?? new Vec3(0, 1, 0);
+    const normal =
+      useFaceNormalsForLighting && faceNormal
+        ? faceNormal
+        : (cameraSpaceNormals[i] ?? faceNormal ?? defaultNormal);
     const viewDir = pos.negate();
     const { diffuse, specular } = computeLightingDiffuseAndSpecular(
       pos,
@@ -543,6 +547,7 @@ export function projectSceneToFilledPolygons(
         ambientColor,
         meshUvs,
         polygon.uvIndices,
+        mesh.useFaceNormalsForLighting ?? true,
       );
       if (vertices !== null && vertices.length >= 2) {
         const depth = polygonDepth(polygon.vertexIndices, cameraSpaceVertices);
