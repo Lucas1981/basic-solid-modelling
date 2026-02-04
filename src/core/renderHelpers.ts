@@ -7,7 +7,7 @@ import { isSphereInFrustum } from "../math/frustum";
 import { Scene } from "./Scene";
 import type { MeshMaterial, Polygon } from "../io/meshLoader";
 import {
-  computeLighting,
+  computeLightingDiffuseAndSpecular,
   hexToColorRGB,
   transformLightsToCameraSpace,
   type Light,
@@ -47,6 +47,10 @@ export interface GouraudVertex {
   /** UV for texture sampling (when batch has texture). */
   u?: number;
   v?: number;
+  /** Specular (0–255) added on top of texture×diffuse when present; used for textured polys only. */
+  sr?: number;
+  sg?: number;
+  sb?: number;
 }
 
 /** A filled polygon batch: Gouraud vertices; optional texture for texture × lighting. */
@@ -138,7 +142,9 @@ function parseColorToRgb(color: string): [number, number, number] {
 }
 
 /**
- * Build Gouraud vertices for a single polygon: per-vertex color from computeLighting; optional u,v from mesh uvs.
+ * Build Gouraud vertices for a single polygon: per-vertex color from computeLightingDiffuseAndSpecular.
+ * For textured polygons, store diffuse in r,g,b and specular in sr,sg,sb so the rasterizer can add specular on top of texture×diffuse.
+ * For untextured polygons, store diffuse+specular in r,g,b.
  */
 function collectPolygonGouraudVertices(
   projectedPoints: (ProjectedPoint | null)[],
@@ -157,6 +163,8 @@ function collectPolygonGouraudVertices(
   const vertices: GouraudVertex[] = [];
   const useFaceNormal = cameraSpaceNormals.length === 0 && faceNormal !== null;
   const hasUVs = uvs.length > 0 && uvIndices && uvIndices.length === indices.length;
+  const useSeparateSpecular = Boolean(polygon.textureUrl && hasUVs);
+
   for (let k = 0; k < indices.length; k++) {
     const i = indices[k];
     const p = projectedPoints[i];
@@ -166,7 +174,7 @@ function collectPolygonGouraudVertices(
       ? faceNormal
       : cameraSpaceNormals[i] ?? faceNormal ?? new Vec3(0, 1, 0);
     const viewDir = pos.negate();
-    const color = computeLighting(
+    const { diffuse, specular } = computeLightingDiffuseAndSpecular(
       pos,
       normal,
       viewDir,
@@ -174,14 +182,33 @@ function collectPolygonGouraudVertices(
       lights,
       ambientColor,
     );
+    let r: number, g: number, b: number;
+    let sr: number | undefined, sg: number | undefined, sb: number | undefined;
+    if (useSeparateSpecular) {
+      r = diffuse.r * 255;
+      g = diffuse.g * 255;
+      b = diffuse.b * 255;
+      sr = specular.r * 255;
+      sg = specular.g * 255;
+      sb = specular.b * 255;
+    } else {
+      r = (diffuse.r + specular.r) * 255;
+      g = (diffuse.g + specular.g) * 255;
+      b = (diffuse.b + specular.b) * 255;
+    }
     const vert: GouraudVertex = {
       x: p.x,
       y: p.y,
-      r: Math.round(Math.max(0, Math.min(255, color.r * 255))),
-      g: Math.round(Math.max(0, Math.min(255, color.g * 255))),
-      b: Math.round(Math.max(0, Math.min(255, color.b * 255))),
+      r: Math.round(Math.max(0, Math.min(255, r))),
+      g: Math.round(Math.max(0, Math.min(255, g))),
+      b: Math.round(Math.max(0, Math.min(255, b))),
       invW: 1 / p.w,
     };
+    if (sr !== undefined && sg !== undefined && sb !== undefined) {
+      vert.sr = Math.round(Math.max(0, Math.min(255, sr)));
+      vert.sg = Math.round(Math.max(0, Math.min(255, sg)));
+      vert.sb = Math.round(Math.max(0, Math.min(255, sb)));
+    }
     if (hasUVs && uvIndices[k] < uvs.length) {
       vert.u = uvs[uvIndices[k]].u;
       vert.v = uvs[uvIndices[k]].v;

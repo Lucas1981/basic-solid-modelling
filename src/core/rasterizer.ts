@@ -139,7 +139,7 @@ export function rasterizeTriangleGouraud(
 
 /**
  * Rasterize a triangle with Gouraud shading and texture: interpolate (r,g,b) and (u,v) with perspective correction,
- * sample texture at (u,v), final color = texture × lighting (modulate).
+ * sample texture at (u,v). Final color = texture × diffuse + specular (additive specular so highlights show on dark texels).
  */
 export function rasterizeTriangleGouraudTextured(
   framebuffer: Framebuffer,
@@ -172,6 +172,8 @@ export function rasterizeTriangleGouraudTextured(
     a.u !== undefined && a.v !== undefined &&
     b.u !== undefined && b.v !== undefined &&
     c.u !== undefined && c.v !== undefined;
+  /** Specular is set per-polygon (all vertices or none); one vertex is enough to check. */
+  const hasSpecular = a.sr !== undefined;
 
   for (let py = minY; py <= maxY; py++) {
     for (let px = minX; px <= maxX; px++) {
@@ -184,6 +186,7 @@ export function rasterizeTriangleGouraudTextured(
       if (u >= 0 && v >= 0 && u + v <= 1) {
         const w = 1 - u - v;
         let r: number, g: number, blue: number;
+        let sR = 0, sG = 0, sB = 0;
         let uTex: number, vTex: number;
         if (usePerspective && a.invW! > 0 && b.invW! > 0 && c.invW! > 0) {
           const invW = w * a.invW! + u * b.invW! + v * c.invW!;
@@ -191,6 +194,11 @@ export function rasterizeTriangleGouraudTextured(
           r = (w * a.r * a.invW! + u * b.r * b.invW! + v * c.r * c.invW!) / invW;
           g = (w * a.g * a.invW! + u * b.g * b.invW! + v * c.g * c.invW!) / invW;
           blue = (w * a.b * a.invW! + u * b.b * b.invW! + v * c.b * c.invW!) / invW;
+          if (hasSpecular) {
+            sR = (w * a.sr! * a.invW! + u * b.sr! * b.invW! + v * c.sr! * c.invW!) / invW;
+            sG = (w * a.sg! * a.invW! + u * b.sg! * b.invW! + v * c.sg! * c.invW!) / invW;
+            sB = (w * a.sb! * a.invW! + u * b.sb! * b.invW! + v * c.sb! * c.invW!) / invW;
+          }
           if (hasUV) {
             uTex = (w * a.u! * a.invW! + u * b.u! * b.invW! + v * c.u! * c.invW!) / invW;
             vTex = (w * a.v! * a.invW! + u * b.v! * b.invW! + v * c.v! * c.invW!) / invW;
@@ -202,14 +210,30 @@ export function rasterizeTriangleGouraudTextured(
           r = w * a.r + u * b.r + v * c.r;
           g = w * a.g + u * b.g + v * c.g;
           blue = w * a.b + u * b.b + v * c.b;
+          if (hasSpecular) {
+            sR = w * a.sr! + u * b.sr! + v * c.sr!;
+            sG = w * a.sg! + u * b.sg! + v * c.sg!;
+            sB = w * a.sb! + u * b.sb! + v * c.sb!;
+          }
           uTex = hasUV ? w * a.u! + u * b.u! + v * c.u! : 0;
           vTex = hasUV ? w * a.v! + u * b.v! + v * c.v! : 0;
         }
         const [tR, tG, tB] = sampleTexture(texture, uTex, vTex);
-        const fr = Math.round(Math.max(0, Math.min(255, (tR * r) / 255)));
-        const fg = Math.round(Math.max(0, Math.min(255, (tG * g) / 255)));
-        const fb = Math.round(Math.max(0, Math.min(255, (tB * blue) / 255)));
-        framebuffer.putPixelUnsafe(px, py, fr, fg, fb);
+        let fr = (tR * r) / 255;
+        let fg = (tG * g) / 255;
+        let fb = (tB * blue) / 255;
+        if (hasSpecular) {
+          fr = Math.min(255, fr + sR);
+          fg = Math.min(255, fg + sG);
+          fb = Math.min(255, fb + sB);
+        }
+        framebuffer.putPixelUnsafe(
+          px,
+          py,
+          Math.round(Math.max(0, Math.min(255, fr))),
+          Math.round(Math.max(0, Math.min(255, fg))),
+          Math.round(Math.max(0, Math.min(255, fb))),
+        );
       }
     }
   }
