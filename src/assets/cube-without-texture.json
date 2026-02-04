@@ -1,0 +1,27 @@
+{
+  "material": { "specular": "#ffffff", "shininess": 64 },
+  "vertices": [
+    { "x": -1, "y": -1, "z": -1 },
+    { "x": 1, "y": -1, "z": -1 },
+    { "x": 1, "y": 1, "z": -1 },
+    { "x": -1, "y": 1, "z": -1 },
+    { "x": -1, "y": -1, "z": 1 },
+    { "x": 1, "y": -1, "z": 1 },
+    { "x": 1, "y": 1, "z": 1 },
+    { "x": -1, "y": 1, "z": 1 }
+  ],
+  "polygons": [
+    { "color": "#1a4a8a", "vertexIndices": [2, 1, 0] },
+    { "color": "#1a4a8a", "vertexIndices": [3, 2, 0] },
+    { "color": "#1a4a8a", "vertexIndices": [4, 5, 6] },
+    { "color": "#1a4a8a", "vertexIndices": [4, 6, 7] },
+    { "color": "#1a4a8a", "vertexIndices": [6, 5, 1] },
+    { "color": "#1a4a8a", "vertexIndices": [2, 6, 1] },
+    { "color": "#1a4a8a", "vertexIndices": [0, 1, 5] },
+    { "color": "#1a4a8a", "vertexIndices": [0, 5, 4] },
+    { "color": "#1a4a8a", "vertexIndices": [4, 7, 3] },
+    { "color": "#1a4a8a", "vertexIndices": [4, 3, 0] },
+    { "color": "#1a4a8a", "vertexIndices": [6, 2, 3] },
+    { "color": "#1a4a8a", "vertexIndices": [7, 6, 3] }
+  ]
+}

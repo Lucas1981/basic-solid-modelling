@@ -1,0 +1,113 @@
+{
+  "material": { "specular": "#ffffff", "shininess": 64 },
+  "vertices": [
+    { "x": -1, "y": -1, "z": -1 },
+    { "x": 1, "y": -1, "z": -1 },
+    { "x": 1, "y": 1, "z": -1 },
+    { "x": -1, "y": 1, "z": -1 },
+    { "x": -1, "y": -1, "z": 1 },
+    { "x": 1, "y": -1, "z": 1 },
+    { "x": 1, "y": 1, "z": 1 },
+    { "x": -1, "y": 1, "z": 1 }
+  ],
+  "uvs": [
+    { "u": 1, "v": 1 },
+    { "u": 0, "v": 1 },
+    { "u": 0, "v": 0 },
+    { "u": 1, "v": 0 },
+    { "u": 0, "v": 1 },
+    { "u": 1, "v": 1 },
+    { "u": 1, "v": 0 },
+    { "u": 0, "v": 0 },
+    { "u": 1, "v": 1 },
+    { "u": 0, "v": 1 },
+    { "u": 0, "v": 0 },
+    { "u": 1, "v": 0 },
+    { "u": 1, "v": 1 },
+    { "u": 0, "v": 1 },
+    { "u": 0, "v": 0 },
+    { "u": 1, "v": 0 },
+    { "u": 1, "v": 1 },
+    { "u": 1, "v": 0 },
+    { "u": 0, "v": 0 },
+    { "u": 0, "v": 1 },
+    { "u": 0, "v": 0 },
+    { "u": 1, "v": 0 },
+    { "u": 1, "v": 1 },
+    { "u": 0, "v": 1 }
+  ],
+  "polygons": [
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [2, 1, 0],
+      "uvIndices": [2, 1, 0]
+    },
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [3, 2, 0],
+      "uvIndices": [3, 2, 0]
+    },
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [4, 5, 6],
+      "uvIndices": [4, 5, 6]
+    },
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [4, 6, 7],
+      "uvIndices": [4, 6, 7]
+    },
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [6, 5, 1],
+      "uvIndices": [10, 9, 8]
+    },
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [2, 6, 1],
+      "uvIndices": [11, 10, 8]
+    },
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [0, 1, 5],
+      "uvIndices": [12, 13, 14]
+    },
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [0, 5, 4],
+      "uvIndices": [12, 14, 15]
+    },
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [4, 7, 3],
+      "uvIndices": [16, 17, 18]
+    },
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [4, 3, 0],
+      "uvIndices": [16, 18, 19]
+    },
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [6, 2, 3],
+      "uvIndices": [22, 21, 20]
+    },
+    {
+      "color": "#ffffff",
+      "textureUrl": "cat.jpg",
+      "vertexIndices": [7, 6, 3],
+      "uvIndices": [23, 22, 20]
+    }
+  ]
+}

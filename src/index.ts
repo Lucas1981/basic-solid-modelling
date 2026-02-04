@@ -58,17 +58,22 @@ const APPLY_PAINTERS_ALGORITHM = true;
 /** When true, skip polygons facing away from the camera (back-face culling). */
 const APPLY_BACK_FACE_CULLING = true;
 
-// Load the cube mesh and start rendering
+// Load cube meshes (untextured and textured) and start rendering
 async function main() {
   try {
-    const meshUrl = "./assets/cube.json";
-    const meshData = await loadMesh(meshUrl);
-    const mesh = Mesh.fromData(meshData);
-    const textureMap = await loadTexturesForMesh(meshData, meshUrl);
+    const urlNoTex = "./assets/cube-without-texture.json";
+    const urlWithTex = "./assets/cube-with-texture.json";
+
+    const meshDataNoTex = await loadMesh(urlNoTex);
+    const meshNoTex = Mesh.fromData(meshDataNoTex);
+
+    const meshDataWithTex = await loadMesh(urlWithTex);
+    const meshWithTex = Mesh.fromData(meshDataWithTex);
+    const textureMap = await loadTexturesForMesh(meshDataWithTex, urlWithTex);
 
     const scene = new Scene(camera);
-    scene.add(new Object3D(mesh, new Vec3(-2, 0, 0)));
-    scene.add(new Object3D(mesh, new Vec3(2, 0, 0)));
+    scene.add(new Object3D(meshNoTex, new Vec3(-2, 0, 0)));
+    scene.add(new Object3D(meshWithTex, new Vec3(2, 0, 0)));
 
     // Lights (world space): directional from above-right-front, point light in front
     const dirToLight = new Vec3(1, 1.5, 0.5).normalize();
