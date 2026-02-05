@@ -74,6 +74,7 @@ export interface ProjectSceneResult {
 export interface ProjectSceneFilledResult {
   batches: FilledPolygonBatch[];
   debugNormalSegments: Array<[number, number, number, number]>;
+  debugVertexNormalSegments: Array<[number, number, number, number]>;
 }
 
 /** Length of debug normal line in camera-space units. */
@@ -386,7 +387,8 @@ export function collectPolygonScreenVertices(
 }
 
 export interface ProjectSceneOptions {
-  debugShowDirection?: boolean;
+  debugShowFaceNormals?: boolean;
+  debugShowVertexNormals?: boolean;
   applyPaintersAlgorithm?: boolean;
   applyBackFaceCulling?: boolean;
   /** Map textureUrl (as in JSON) -> ImageData; when set, textured polygons get texture. */
@@ -452,7 +454,7 @@ export function projectSceneToPolygonWireframe(
         batches.push({ color: polygon.color, segments, depth });
       }
 
-      if (options?.debugShowDirection && normal) {
+      if (options?.debugShowFaceNormals && normal) {
         const center = polygonCenter(
           polygon.vertexIndices,
           cameraSpaceVertices,
@@ -487,6 +489,7 @@ export function projectSceneToFilledPolygons(
 ): ProjectSceneFilledResult {
   const batches: FilledPolygonBatch[] = [];
   const debugNormalSegments: Array<[number, number, number, number]> = [];
+  const debugVertexNormalSegments: Array<[number, number, number, number]> = [];
   const camera = scene.camera;
   const view = camera.getViewMatrix();
   const aspect = viewport.width / viewport.height;
@@ -558,7 +561,7 @@ export function projectSceneToFilledPolygons(
         batches.push({ vertices, depth, texture, batchIndex: batches.length });
       }
 
-      if (options?.debugShowDirection && faceNormal) {
+      if (options?.debugShowFaceNormals && faceNormal) {
         const center = polygonCenter(
           polygon.vertexIndices,
           cameraSpaceVertices,
@@ -568,6 +571,20 @@ export function projectSceneToFilledPolygons(
         const pEnd = projectPoint(end, projection, viewport);
         if (pStart && !pStart.behind && pEnd && !pEnd.behind) {
           debugNormalSegments.push([pStart.x, pStart.y, pEnd.x, pEnd.y]);
+        }
+      }
+
+      if (options?.debugShowVertexNormals) {
+        for (const i of polygon.vertexIndices) {
+          const pos = cameraSpaceVertices[i];
+          const normal = cameraSpaceNormals[i];
+          if (!normal) continue;
+          const end = pos.add(normal.scale(DEBUG_NORMAL_LENGTH));
+          const pStart = projectPoint(pos, projection, viewport);
+          const pEnd = projectPoint(end, projection, viewport);
+          if (pStart && !pStart.behind && pEnd && !pEnd.behind) {
+            debugVertexNormalSegments.push([pStart.x, pStart.y, pEnd.x, pEnd.y]);
+          }
         }
       }
     }
@@ -581,5 +598,5 @@ export function projectSceneToFilledPolygons(
     });
   }
 
-  return { batches, debugNormalSegments };
+  return { batches, debugNormalSegments, debugVertexNormalSegments };
 }

@@ -18,6 +18,7 @@ async function main() {
     input,
     cameraState,
     debug,
+    config,
   } = result;
 
   let lastTime = performance.now();
@@ -47,17 +48,14 @@ async function main() {
     const projection = camera.getProjectionMatrix(aspect);
     const viewProj = projection.multiply(view);
 
-    const { batches, debugNormalSegments } = projectSceneToFilledPolygons(
-      scene,
-      viewProj,
-      viewport,
-      {
-        debugShowDirection: debug.showDirection,
-        applyPaintersAlgorithm: debug.applyPaintersAlgorithm,
-        applyBackFaceCulling: debug.applyBackFaceCulling,
+    const { batches, debugNormalSegments, debugVertexNormalSegments } =
+      projectSceneToFilledPolygons(scene, viewProj, viewport, {
+        debugShowFaceNormals: debug.showFaceNormals,
+        debugShowVertexNormals: debug.showVertexNormals,
+        applyPaintersAlgorithm: config.applyPaintersAlgorithm,
+        applyBackFaceCulling: config.applyBackFaceCulling,
         textureMap,
-      }
-    );
+      });
     rasterizeBatches(framebuffer, batches);
 
     canvas.blit(framebuffer);
@@ -68,6 +66,7 @@ async function main() {
       projection,
       viewport,
       debugNormalSegments,
+      debugVertexNormalSegments,
       deltaTime,
       debug
     );

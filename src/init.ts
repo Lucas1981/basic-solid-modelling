@@ -17,11 +17,17 @@ import { InputController } from "./core/Input";
 import type { DirectionalLight, PointLight, SpotLight } from "./core/Lighting";
 import { Viewport } from "./math/projection";
 
-/** Debug/render options returned by init for use in the render loop. */
+/** Debug overlay options returned by init (what to draw). */
 export interface InitDebugOptions {
-  showDirection: boolean;
+  showFaceNormals: boolean;
   showFps: boolean;
   showLightSources: boolean;
+  showLightDirections: boolean;
+  showVertexNormals: boolean;
+}
+
+/** Render pipeline config (visibility and order). */
+export interface InitRenderConfig {
   applyPaintersAlgorithm: boolean;
   applyBackFaceCulling: boolean;
 }
@@ -44,6 +50,7 @@ export interface InitResult {
   input: InputController;
   cameraState: CameraState;
   debug: InitDebugOptions;
+  config: InitRenderConfig;
 }
 
 /** Result of loading scene assets (meshes + textures). Null on failure. */
@@ -217,9 +224,13 @@ export async function init(): Promise<InitResult | null> {
     input,
     cameraState,
     debug: {
-      showDirection: false,
+      showFaceNormals: false,
       showFps: true,
       showLightSources: true,
+      showLightDirections: false,
+      showVertexNormals: false,
+    },
+    config: {
       applyPaintersAlgorithm: true,
       applyBackFaceCulling: true,
     },
